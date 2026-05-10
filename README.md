@@ -2,6 +2,9 @@
 
 A high-performance desktop application designed for photographers to efficiently cull, compare, and organize large collections of RAW and JPEG photos. Built with Tauri, Rust, and React.
 
+![Better Photo Chooser Example](public/assets/example.png)
+
+
 ## Features
 
 *   **Dual Format Management:** Automatically detects and pairs `.jpg` and `.raf` (RAW) files. The grid view hides redundant RAW files while highlighting paired JPEGs with a "RAW" badge.
