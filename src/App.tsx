@@ -111,7 +111,7 @@ function Thumbnail({ file }: { file: ImageFile }) {
 const RAW_EXT = /\.(raf|cr2|nef|arw)$/i;
 const JPEG_EXT = /\.(jpg|jpeg|png)$/i;
 
-function ImageView({ file, placeholder, layout, zoom, pan, onZoomPan, onPanDelta, showMetadata, metadata, hoveredMetaKey, onMetaHover }: { file: ImageFile | null; placeholder: string; layout: 'side' | 'stacked'; zoom: number; pan: { x: number, y: number }; onZoomPan: (zoom: number, pan: { x: number, y: number }) => void; onPanDelta: (dx: number, dy: number) => void; showMetadata: boolean; metadata: ImageMetadata | null; hoveredMetaKey: string | null; onMetaHover: (key: string | null) => void; }) {
+function ImageView({ file, placeholder, comparisonLayout, zoom, pan, onZoomPan, onPanDelta, showMetadata, metadata, otherMetadata, hoveredMetaKey, onMetaHover }: { file: ImageFile | null; placeholder: string; comparisonLayout: 'sidebyside' | 'stacked'; zoom: number; pan: { x: number, y: number }; onZoomPan: (zoom: number, pan: { x: number, y: number }) => void; onPanDelta: (dx: number, dy: number) => void; showMetadata: boolean; metadata: ImageMetadata | null; otherMetadata: ImageMetadata | null; hoveredMetaKey: string | null; onMetaHover: (key: string | null) => void; }) {
   const [src, setSrc] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
@@ -196,6 +196,15 @@ function ImageView({ file, placeholder, layout, zoom, pan, onZoomPan, onPanDelta
     }
   };
 
+  const getMetaChipClass = (key: keyof ImageMetadata, value: string | undefined) => {
+    if (hoveredMetaKey === key) return "meta-chip meta-chip-hover";
+    if (key === 'date_taken') return "meta-chip";
+    if (otherMetadata) {
+      return otherMetadata[key] === value ? "meta-chip meta-chip-match" : "meta-chip meta-chip-diff";
+    }
+    return "meta-chip";
+  };
+
   if (!file) {
     return (
       <div className="comparison-pane">
@@ -213,29 +222,29 @@ function ImageView({ file, placeholder, layout, zoom, pan, onZoomPan, onPanDelta
         position: "relative",
         overflow: "hidden",
         display: "flex",
-        flexDirection: layout === 'side' ? 'column' : 'row'
+        flexDirection: comparisonLayout === 'sidebyside' ? 'column' : 'row'
       }}
     >
-      <div className={`file-name-badge-top ${layout === 'stacked' ? 'right-side' : ''}`} style={{ zIndex: 10, display: 'flex', flexDirection: 'column', gap: '6px', alignItems: layout === 'stacked' ? 'flex-end' : 'flex-start', maxWidth: layout === 'stacked' ? '300px' : '80%' }}>
+      <div className={`file-name-badge-top ${comparisonLayout === 'stacked' ? 'right-side' : ''}`} style={{ zIndex: 10, display: 'flex', flexDirection: 'column', gap: '6px', alignItems: comparisonLayout === 'stacked' ? 'flex-end' : 'flex-start', maxWidth: comparisonLayout === 'stacked' ? '400px' : '80%' }}>
         <span style={{ fontWeight: 600 }}>{file.name}</span>
         {showMetadata && metadata && (
-          <div className="metadata-chips" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: layout === 'stacked' ? 'flex-end' : 'flex-start' }}>
-            {metadata.dimensions && <span className={`meta-chip ${hoveredMetaKey === 'dimensions' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('dimensions')} onMouseLeave={() => onMetaHover(null)} title="Dimensions">{metadata.dimensions}</span>}
-            {metadata.date_taken && <span className={`meta-chip ${hoveredMetaKey === 'date_taken' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('date_taken')} onMouseLeave={() => onMetaHover(null)} title="Date taken">{metadata.date_taken}</span>}
-            {metadata.camera_maker && <span className={`meta-chip ${hoveredMetaKey === 'camera_maker' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('camera_maker')} onMouseLeave={() => onMetaHover(null)} title="Camera maker">{metadata.camera_maker}</span>}
-            {metadata.camera_model && <span className={`meta-chip ${hoveredMetaKey === 'camera_model' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('camera_model')} onMouseLeave={() => onMetaHover(null)} title="Camera model">{metadata.camera_model}</span>}
-            {metadata.lens_model && <span className={`meta-chip ${hoveredMetaKey === 'lens_model' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('lens_model')} onMouseLeave={() => onMetaHover(null)} title="Lens model">{metadata.lens_model}</span>}
-            {metadata.f_number && <span className={`meta-chip ${hoveredMetaKey === 'f_number' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('f_number')} onMouseLeave={() => onMetaHover(null)} title="F-stop">{metadata.f_number}</span>}
-            {metadata.exposure_time && <span className={`meta-chip ${hoveredMetaKey === 'exposure_time' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('exposure_time')} onMouseLeave={() => onMetaHover(null)} title="Exposure time">{metadata.exposure_time}</span>}
-            {metadata.iso && <span className={`meta-chip ${hoveredMetaKey === 'iso' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('iso')} onMouseLeave={() => onMetaHover(null)} title="ISO speed">ISO {metadata.iso}</span>}
-            {metadata.focal_length && <span className={`meta-chip ${hoveredMetaKey === 'focal_length' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('focal_length')} onMouseLeave={() => onMetaHover(null)} title="Focal length">{metadata.focal_length}</span>}
-            {metadata.exposure_bias && <span className={`meta-chip ${hoveredMetaKey === 'exposure_bias' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('exposure_bias')} onMouseLeave={() => onMetaHover(null)} title="Exposure bias">{metadata.exposure_bias}</span>}
-            {metadata.exposure_program && <span className={`meta-chip ${hoveredMetaKey === 'exposure_program' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('exposure_program')} onMouseLeave={() => onMetaHover(null)} title="Exposure program">{metadata.exposure_program}</span>}
-            {metadata.metering_mode && <span className={`meta-chip ${hoveredMetaKey === 'metering_mode' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('metering_mode')} onMouseLeave={() => onMetaHover(null)} title="Metering mode">{metadata.metering_mode}</span>}
-            {metadata.flash_mode && <span className={`meta-chip ${hoveredMetaKey === 'flash_mode' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('flash_mode')} onMouseLeave={() => onMetaHover(null)} title="Flash mode">{metadata.flash_mode}</span>}
-            {metadata.white_balance && <span className={`meta-chip ${hoveredMetaKey === 'white_balance' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('white_balance')} onMouseLeave={() => onMetaHover(null)} title="White balance">{metadata.white_balance}</span>}
-            {metadata.exposure_mode && <span className={`meta-chip ${hoveredMetaKey === 'exposure_mode' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('exposure_mode')} onMouseLeave={() => onMetaHover(null)} title="Exposure mode">{metadata.exposure_mode}</span>}
-            {metadata.software && <span className={`meta-chip ${hoveredMetaKey === 'software' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('software')} onMouseLeave={() => onMetaHover(null)} title="Software / Firmware">{metadata.software}</span>}
+          <div className="metadata-chips" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: comparisonLayout === 'stacked' ? 'flex-end' : 'flex-start' }}>
+            {metadata.date_taken && <span className={getMetaChipClass('date_taken', metadata.date_taken)} onMouseEnter={() => onMetaHover('date_taken')} onMouseLeave={() => onMetaHover(null)} title="Date taken">{metadata.date_taken}</span>}
+            {metadata.dimensions && <span className={getMetaChipClass('dimensions', metadata.dimensions)} onMouseEnter={() => onMetaHover('dimensions')} onMouseLeave={() => onMetaHover(null)} title="Dimensions">{metadata.dimensions}</span>}
+            {metadata.camera_maker && <span className={getMetaChipClass('camera_maker', metadata.camera_maker)} onMouseEnter={() => onMetaHover('camera_maker')} onMouseLeave={() => onMetaHover(null)} title="Camera maker">{metadata.camera_maker}</span>}
+            {metadata.camera_model && <span className={getMetaChipClass('camera_model', metadata.camera_model)} onMouseEnter={() => onMetaHover('camera_model')} onMouseLeave={() => onMetaHover(null)} title="Camera model">{metadata.camera_model}</span>}
+            {metadata.lens_model && <span className={getMetaChipClass('lens_model', metadata.lens_model)} onMouseEnter={() => onMetaHover('lens_model')} onMouseLeave={() => onMetaHover(null)} title="Lens model">{metadata.lens_model}</span>}
+            {metadata.f_number && <span className={getMetaChipClass('f_number', metadata.f_number)} onMouseEnter={() => onMetaHover('f_number')} onMouseLeave={() => onMetaHover(null)} title="F-stop">{metadata.f_number}</span>}
+            {metadata.exposure_time && <span className={getMetaChipClass('exposure_time', metadata.exposure_time)} onMouseEnter={() => onMetaHover('exposure_time')} onMouseLeave={() => onMetaHover(null)} title="Exposure time">{metadata.exposure_time}</span>}
+            {metadata.iso && <span className={getMetaChipClass('iso', metadata.iso)} onMouseEnter={() => onMetaHover('iso')} onMouseLeave={() => onMetaHover(null)} title="ISO speed">ISO {metadata.iso}</span>}
+            {metadata.focal_length && <span className={getMetaChipClass('focal_length', metadata.focal_length)} onMouseEnter={() => onMetaHover('focal_length')} onMouseLeave={() => onMetaHover(null)} title="Focal length">{metadata.focal_length}</span>}
+            {metadata.exposure_bias && <span className={getMetaChipClass('exposure_bias', metadata.exposure_bias)} onMouseEnter={() => onMetaHover('exposure_bias')} onMouseLeave={() => onMetaHover(null)} title="Exposure bias">{metadata.exposure_bias}</span>}
+            {metadata.exposure_program && <span className={getMetaChipClass('exposure_program', metadata.exposure_program)} onMouseEnter={() => onMetaHover('exposure_program')} onMouseLeave={() => onMetaHover(null)} title="Exposure program">{metadata.exposure_program}</span>}
+            {metadata.metering_mode && <span className={getMetaChipClass('metering_mode', metadata.metering_mode)} onMouseEnter={() => onMetaHover('metering_mode')} onMouseLeave={() => onMetaHover(null)} title="Metering mode">{metadata.metering_mode}</span>}
+            {metadata.flash_mode && <span className={getMetaChipClass('flash_mode', metadata.flash_mode)} onMouseEnter={() => onMetaHover('flash_mode')} onMouseLeave={() => onMetaHover(null)} title="Flash mode">{metadata.flash_mode}</span>}
+            {metadata.white_balance && <span className={getMetaChipClass('white_balance', metadata.white_balance)} onMouseEnter={() => onMetaHover('white_balance')} onMouseLeave={() => onMetaHover(null)} title="White balance">{metadata.white_balance}</span>}
+            {metadata.exposure_mode && <span className={getMetaChipClass('exposure_mode', metadata.exposure_mode)} onMouseEnter={() => onMetaHover('exposure_mode')} onMouseLeave={() => onMetaHover(null)} title="Exposure mode">{metadata.exposure_mode}</span>}
+            {metadata.software && <span className={getMetaChipClass('software', metadata.software)} onMouseEnter={() => onMetaHover('software')} onMouseLeave={() => onMetaHover(null)} title="Software / Firmware">{metadata.software}</span>}
           </div>
         )}
       </div>
@@ -246,9 +255,9 @@ function ImageView({ file, placeholder, layout, zoom, pan, onZoomPan, onPanDelta
         </div>
       )}
 
-      {layout === 'stacked' && (
+      {comparisonLayout === 'stacked' && (
         <>
-          <div className="action-zones vertical">
+          <div className="action-zones stacked">
             <button className="zone-btn zone-star" title="Star Image">
               <Star size={32} className="zone-icon" />
             </button>
@@ -267,7 +276,7 @@ function ImageView({ file, placeholder, layout, zoom, pan, onZoomPan, onPanDelta
             style={{ cursor: zoom > 100 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
           >
             {src ? (
-              <img src={src} alt={file.name} draggable={false} className="contained-image vertical-mode" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transition: isDragging ? 'none' : 'transform 0.1s ease-out' }} />
+              <img src={src} alt={file.name} draggable={false} className="contained-image stacked-mode" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transition: isDragging ? 'none' : 'transform 0.1s ease-out' }} />
             ) : (
               <div className="thumbnail-loading" style={{ width: "100%", height: "100%" }} />
             )}
@@ -276,7 +285,7 @@ function ImageView({ file, placeholder, layout, zoom, pan, onZoomPan, onPanDelta
         </>
       )}
 
-      {layout === 'side' && (
+      {comparisonLayout === 'sidebyside' && (
         <>
           <div className="layout-spacer top-spacer" />
           <div
@@ -287,12 +296,12 @@ function ImageView({ file, placeholder, layout, zoom, pan, onZoomPan, onPanDelta
             style={{ cursor: zoom > 100 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
           >
             {src ? (
-              <img src={src} alt={file.name} draggable={false} className="contained-image horizontal-mode" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transition: isDragging ? 'none' : 'transform 0.1s ease-out' }} />
+              <img src={src} alt={file.name} draggable={false} className="contained-image sidebyside-mode" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transition: isDragging ? 'none' : 'transform 0.1s ease-out' }} />
             ) : (
               <div className="thumbnail-loading" style={{ width: "100%", height: "100%" }} />
             )}
           </div>
-          <div className="action-zones horizontal">
+          <div className="action-zones sidebyside">
             <button className="zone-btn zone-star" title="Star Image">
               <Star size={32} className="zone-icon" />
             </button>
@@ -311,20 +320,20 @@ function ImageView({ file, placeholder, layout, zoom, pan, onZoomPan, onPanDelta
 
 function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [sidebarPosition, setSidebarPosition] = useState<'left' | 'bottom'>('left');
+  const [sidebarLayout, setSidebarLayout] = useState<'left' | 'bottom'>('left');
   const [sidebarWidth, setSidebarWidth] = useState(360);
   const [sidebarHeight, setSidebarHeight] = useState(250);
   const [isResizing, setIsResizing] = useState(false);
   const [files, setFiles] = useState<ImageFile[]>([]);
   const [currentFolderPath, setCurrentFolderPath] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [comparisonLayout, setComparisonLayout] = useState<'side' | 'stacked'>('side');
+  const [comparisonLayout, setComparisonLayout] = useState<'sidebyside' | 'stacked'>('sidebyside');
   const [selectedImage1, setSelectedImage1] = useState<ImageFile | null>(null);
   const [selectedImage2, setSelectedImage2] = useState<ImageFile | null>(null);
   const [zoom, setZoom] = useState(100);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  
+
   const [metadata1, setMetadata1] = useState<ImageMetadata | null>(null);
   const [metadata2, setMetadata2] = useState<ImageMetadata | null>(null);
   const [showMetadata, setShowMetadata] = useState(false);
@@ -415,16 +424,16 @@ function App() {
   const resize = useCallback(
     (e: MouseEvent) => {
       if (isResizing) {
-        if (sidebarPosition === 'left') {
+        if (sidebarLayout === 'left') {
           const newWidth = e.clientX;
-          const minWidth = 260;
+          const minWidth = 300;
           const maxWidth = window.innerWidth / 2;
           if (newWidth >= minWidth && newWidth <= maxWidth) setSidebarWidth(newWidth);
           else if (newWidth < minWidth && newWidth > 100) setSidebarWidth(minWidth);
           else if (newWidth > maxWidth) setSidebarWidth(maxWidth);
         } else {
           const newHeight = window.innerHeight - e.clientY;
-          const minHeight = 150;
+          const minHeight = 235;
           const maxHeight = window.innerHeight * 0.8;
           if (newHeight >= minHeight && newHeight <= maxHeight) setSidebarHeight(newHeight);
           else if (newHeight < minHeight && newHeight > 50) setSidebarHeight(minHeight);
@@ -432,7 +441,7 @@ function App() {
         }
       }
     },
-    [isResizing, sidebarPosition]
+    [isResizing, sidebarLayout]
   );
 
   useEffect(() => {
@@ -487,13 +496,13 @@ function App() {
   };
 
   return (
-    <div className={`app-container ${sidebarPosition === 'bottom' ? 'layout-bottom' : ''}`} style={{ cursor: isResizing ? (sidebarPosition === 'left' ? "col-resize" : "row-resize") : "default" }}>
+    <div className={`app-container ${sidebarLayout === 'bottom' ? 'sidebar-bottom' : ''}`} style={{ cursor: isResizing ? (sidebarLayout === 'left' ? "col-resize" : "row-resize") : "default" }}>
       {/* Sidebar */}
       <aside
-        className={`sidebar ${sidebarPosition} ${isSidebarCollapsed ? "collapsed" : ""} ${!isResizing ? "animating" : ""}`}
+        className={`sidebar ${sidebarLayout} ${isSidebarCollapsed ? "collapsed" : ""} ${!isResizing ? "animating" : ""}`}
         style={{
-          width: sidebarPosition === 'left' ? (isSidebarCollapsed ? undefined : sidebarWidth) : '100%',
-          height: sidebarPosition === 'bottom' ? (isSidebarCollapsed ? undefined : sidebarHeight) : '100%',
+          width: sidebarLayout === 'left' ? (isSidebarCollapsed ? undefined : sidebarWidth) : '100%',
+          height: sidebarLayout === 'bottom' ? (isSidebarCollapsed ? undefined : sidebarHeight) : '100%',
         }}
       >
         <div className="sidebar-header">
@@ -529,17 +538,17 @@ function App() {
             )}
             <button
               className="btn-icon"
-              onClick={() => setSidebarPosition(p => p === 'left' ? 'bottom' : 'left')}
-              title={sidebarPosition === 'left' ? "Move Sidebar to Bottom" : "Move Sidebar to Left"}
+              onClick={() => setSidebarLayout(p => p === 'left' ? 'bottom' : 'left')}
+              title={sidebarLayout === 'left' ? "Move Sidebar to Bottom" : "Move Sidebar to Left"}
             >
-              {sidebarPosition === 'left' ? <PanelBottom size={18} /> : <PanelLeft size={18} />}
+              {sidebarLayout === 'left' ? <PanelBottom size={18} /> : <PanelLeft size={18} />}
             </button>
             <button
               className="btn-icon"
               onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
               title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
             >
-              {sidebarPosition === 'left' ? (
+              {sidebarLayout === 'left' ? (
                 isSidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />
               ) : (
                 isSidebarCollapsed ? <PanelBottomOpen size={18} /> : <PanelBottomClose size={18} />
@@ -551,7 +560,7 @@ function App() {
         <div
           className="sidebar-content sidebar-grid"
           onWheel={(e) => {
-            if (sidebarPosition === 'bottom' && e.deltaY !== 0) {
+            if (sidebarLayout === 'bottom' && e.deltaY !== 0) {
               e.currentTarget.scrollLeft += e.deltaY;
             }
           }}
@@ -674,10 +683,10 @@ function App() {
             </button>
             <button
               className="btn-icon"
-              title={comparisonLayout === 'side' ? 'Stack vertically' : 'Place side by side'}
-              onClick={() => setComparisonLayout(l => l === 'side' ? 'stacked' : 'side')}
+              title={comparisonLayout === 'sidebyside' ? 'Stack vertically' : 'Place side by side'}
+              onClick={() => setComparisonLayout(l => l === 'sidebyside' ? 'stacked' : 'sidebyside')}
             >
-              {comparisonLayout === 'side' ? <Rows2 size={18} /> : <Columns2 size={18} />}
+              {comparisonLayout === 'sidebyside' ? <Rows2 size={18} /> : <Columns2 size={18} />}
             </button>
           </div>
         </header>
@@ -696,8 +705,8 @@ function App() {
             </div>
           ) : (
             <div className={`comparison-placeholder ${comparisonLayout === 'stacked' ? 'stacked' : ''}`}>
-              <ImageView file={selectedImage1} placeholder="Click an image to view" layout={comparisonLayout} zoom={zoom} pan={pan} onZoomPan={handleZoomPan} onPanDelta={handlePanDelta} showMetadata={showMetadata} metadata={metadata1} hoveredMetaKey={hoveredMetaKey} onMetaHover={setHoveredMetaKey} />
-              <ImageView file={selectedImage2} placeholder="Double click an image to compare" layout={comparisonLayout} zoom={zoom} pan={pan} onZoomPan={handleZoomPan} onPanDelta={handlePanDelta} showMetadata={showMetadata} metadata={metadata2} hoveredMetaKey={hoveredMetaKey} onMetaHover={setHoveredMetaKey} />
+              <ImageView file={selectedImage1} placeholder="Click an image to view" comparisonLayout={comparisonLayout} zoom={zoom} pan={pan} onZoomPan={handleZoomPan} onPanDelta={handlePanDelta} showMetadata={showMetadata} metadata={metadata1} otherMetadata={metadata2} hoveredMetaKey={hoveredMetaKey} onMetaHover={setHoveredMetaKey} />
+              <ImageView file={selectedImage2} placeholder="Double click an image to compare" comparisonLayout={comparisonLayout} zoom={zoom} pan={pan} onZoomPan={handleZoomPan} onPanDelta={handlePanDelta} showMetadata={showMetadata} metadata={metadata2} otherMetadata={metadata1} hoveredMetaKey={hoveredMetaKey} onMetaHover={setHoveredMetaKey} />
             </div>
           )}
         </div>

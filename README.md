@@ -19,6 +19,8 @@ A high-performance desktop application designed for photographers to efficiently
     *   **Concurrency Control:** A built-in limiter ensures the UI stays smooth even when loading folders with thousands of images.
     *   **Virtualization & Lazy Loading:** Uses Intersection Observer for efficient resource management.
 
+![Better Photo Chooser Example](public/assets/example2.png)
+
 ## Technical Stack
 
 *   **Backend (Rust):** 
