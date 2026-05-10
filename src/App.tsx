@@ -1,0 +1,677 @@
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { FolderPlus, Filter, Grid, List, PanelLeftClose, PanelLeftOpen, Image as ImageIcon, FileImage, Layers, Columns2, Rows2, Info, Star, Move, Trash2 } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { readDir, DirEntry } from "@tauri-apps/plugin-fs";
+import { join } from "@tauri-apps/api/path";
+import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import "./App.css";
+
+type ImageFile = DirEntry & { fullPath: string };
+
+type ImageMetadata = {
+  f_number?: string;
+  exposure_time?: string;
+  iso?: string;
+  focal_length?: string;
+  camera_model?: string;
+  lens_model?: string;
+  dimensions?: string;
+  camera_maker?: string;
+  exposure_bias?: string;
+  exposure_program?: string;
+  metering_mode?: string;
+  flash_mode?: string;
+  date_taken?: string;
+  white_balance?: string;
+  software?: string;
+  exposure_mode?: string;
+};
+
+// ── Concurrency limiter ───────────────────────────────────────────────────────
+const MAX_THUMB_CONCURRENT = 4;
+let _thumbActive = 0;
+const _thumbQueue: Array<() => void> = [];
+
+function acquireThumbSlot(): Promise<() => void> {
+  return new Promise((resolve) => {
+    const tryAcquire = () => {
+      if (_thumbActive < MAX_THUMB_CONCURRENT) {
+        _thumbActive++;
+        resolve(() => {
+          _thumbActive--;
+          if (_thumbQueue.length > 0) _thumbQueue.shift()!();
+        });
+      } else {
+        _thumbQueue.push(tryAcquire);
+      }
+    };
+    tryAcquire();
+  });
+}
+
+// --- Lazy Thumbnail Component ---
+function Thumbnail({ file }: { file: ImageFile }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const loadedRef = useRef(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !loadedRef.current) {
+          loadedRef.current = true;
+          observer.disconnect();
+          setLoading(true);
+
+          acquireThumbSlot().then((release) => {
+            invoke<string>("get_thumbnail_path", { path: file.fullPath, maxSize: 240 })
+              .then((thumbPath) => setSrc(convertFileSrc(thumbPath)))
+              .catch((e) => {
+                console.error("Thumbnail error for", file.fullPath, e);
+                setError(true);
+              })
+              .finally(() => {
+                release();
+                setLoading(false);
+              });
+          });
+        }
+      },
+      { rootMargin: "0px" }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [file.fullPath]);
+
+  return (
+    <div ref={ref} className="thumbnail-inner">
+      {src ? (
+        <img src={src} alt={file.name} className="thumbnail-img" loading="lazy" decoding="async" />
+      ) : error ? (
+        <div className="thumbnail-raw-placeholder">
+          <FileImage size={24} style={{ color: "var(--text-secondary)" }} />
+          <span style={{ fontSize: "10px", marginTop: "4px", color: "var(--text-secondary)" }}>Error</span>
+        </div>
+      ) : loading ? (
+        <div className="thumbnail-loading" />
+      ) : (
+        <div className="thumbnail-loading thumbnail-loading--idle" />
+      )}
+    </div>
+  );
+}
+
+const RAW_EXT = /\.(raf|cr2|nef|arw)$/i;
+const JPEG_EXT = /\.(jpg|jpeg|png)$/i;
+
+function ImageView({ file, placeholder, layout, zoom, pan, onZoomPan, onPanDelta, showMetadata, metadata, hoveredMetaKey, onMetaHover }: { file: ImageFile | null; placeholder: string; layout: 'side' | 'stacked'; zoom: number; pan: { x: number, y: number }; onZoomPan: (zoom: number, pan: { x: number, y: number }) => void; onPanDelta: (dx: number, dy: number) => void; showMetadata: boolean; metadata: ImageMetadata | null; hoveredMetaKey: string | null; onMetaHover: (key: string | null) => void; }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const lastMousePos = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    let active = true;
+    if (!file) {
+      setSrc(null);
+      return;
+    }
+    const isRaw = RAW_EXT.test(file.name ?? "");
+    if (isRaw) {
+      invoke<string>("get_thumbnail_path", { path: file.fullPath, maxSize: 1920 })
+        .then((p) => {
+          if (active) setSrc(convertFileSrc(p));
+        })
+        .catch((e) => {
+          console.error("Failed to load raw image", e);
+          if (active) setSrc(null);
+        });
+    } else {
+      setSrc(convertFileSrc(file.fullPath));
+    }
+    return () => { active = false; };
+  }, [file]);
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      const dx = e.clientX - lastMousePos.current.x;
+      const dy = e.clientY - lastMousePos.current.y;
+      lastMousePos.current = { x: e.clientX, y: e.clientY };
+      onPanDelta(dx, dy);
+    };
+
+    const handleWindowMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    window.addEventListener("mousemove", handleWindowMouseMove);
+    window.addEventListener("mouseup", handleWindowMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleWindowMouseMove);
+      window.removeEventListener("mouseup", handleWindowMouseUp);
+    };
+  }, [isDragging, onPanDelta]);
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (zoom <= 100) return;
+    if (e.button !== 0) return; // Only left click
+    e.preventDefault();
+    setIsDragging(true);
+    lastMousePos.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    const step = zoom >= 100 ? 25 : 10;
+    let nextZoom = zoom;
+    if (e.deltaY < 0) {
+      nextZoom = zoom + step;
+    } else if (e.deltaY > 0) {
+      nextZoom = zoom - step;
+    }
+    nextZoom = Math.min(Math.max(100, nextZoom), 1000);
+
+    if (nextZoom !== zoom) {
+      const containerRect = e.currentTarget.getBoundingClientRect();
+      const cx = containerRect.left + containerRect.width / 2 + pan.x;
+      const cy = containerRect.top + containerRect.height / 2 + pan.y;
+
+      const vx = e.clientX - cx;
+      const vy = e.clientY - cy;
+
+      const zRatio = nextZoom / zoom;
+
+      const newPanX = pan.x + vx * (1 - zRatio);
+      const newPanY = pan.y + vy * (1 - zRatio);
+
+      onZoomPan(nextZoom, nextZoom === 100 ? { x: 0, y: 0 } : { x: newPanX, y: newPanY });
+    }
+  };
+
+  if (!file) {
+    return (
+      <div className="comparison-pane">
+        <ImageIcon className="empty-state-icon" strokeWidth={1} />
+        <p className="empty-state-desc">{placeholder}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="comparison-pane"
+      style={{
+        padding: 0,
+        position: "relative",
+        overflow: "hidden",
+        display: "flex",
+        flexDirection: layout === 'side' ? 'column' : 'row'
+      }}
+    >
+      <div className={`file-name-badge-top ${layout === 'stacked' ? 'right-side' : ''}`} style={{ zIndex: 10, display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-start', maxWidth: '80%' }}>
+        <span style={{ fontWeight: 600 }}>{file.name}</span>
+        {showMetadata && metadata && (
+          <div className="metadata-chips" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            {metadata.dimensions && <span className={`meta-chip ${hoveredMetaKey === 'dimensions' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('dimensions')} onMouseLeave={() => onMetaHover(null)} title="Dimensions">{metadata.dimensions}</span>}
+            {metadata.date_taken && <span className={`meta-chip ${hoveredMetaKey === 'date_taken' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('date_taken')} onMouseLeave={() => onMetaHover(null)} title="Date taken">{metadata.date_taken}</span>}
+            {metadata.camera_maker && <span className={`meta-chip ${hoveredMetaKey === 'camera_maker' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('camera_maker')} onMouseLeave={() => onMetaHover(null)} title="Camera maker">{metadata.camera_maker}</span>}
+            {metadata.camera_model && <span className={`meta-chip ${hoveredMetaKey === 'camera_model' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('camera_model')} onMouseLeave={() => onMetaHover(null)} title="Camera model">{metadata.camera_model}</span>}
+            {metadata.lens_model && <span className={`meta-chip ${hoveredMetaKey === 'lens_model' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('lens_model')} onMouseLeave={() => onMetaHover(null)} title="Lens model">{metadata.lens_model}</span>}
+            {metadata.f_number && <span className={`meta-chip ${hoveredMetaKey === 'f_number' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('f_number')} onMouseLeave={() => onMetaHover(null)} title="F-stop">{metadata.f_number}</span>}
+            {metadata.exposure_time && <span className={`meta-chip ${hoveredMetaKey === 'exposure_time' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('exposure_time')} onMouseLeave={() => onMetaHover(null)} title="Exposure time">{metadata.exposure_time}</span>}
+            {metadata.iso && <span className={`meta-chip ${hoveredMetaKey === 'iso' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('iso')} onMouseLeave={() => onMetaHover(null)} title="ISO speed">ISO {metadata.iso}</span>}
+            {metadata.focal_length && <span className={`meta-chip ${hoveredMetaKey === 'focal_length' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('focal_length')} onMouseLeave={() => onMetaHover(null)} title="Focal length">{metadata.focal_length}</span>}
+            {metadata.exposure_bias && <span className={`meta-chip ${hoveredMetaKey === 'exposure_bias' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('exposure_bias')} onMouseLeave={() => onMetaHover(null)} title="Exposure bias">{metadata.exposure_bias}</span>}
+            {metadata.exposure_program && <span className={`meta-chip ${hoveredMetaKey === 'exposure_program' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('exposure_program')} onMouseLeave={() => onMetaHover(null)} title="Exposure program">{metadata.exposure_program}</span>}
+            {metadata.metering_mode && <span className={`meta-chip ${hoveredMetaKey === 'metering_mode' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('metering_mode')} onMouseLeave={() => onMetaHover(null)} title="Metering mode">{metadata.metering_mode}</span>}
+            {metadata.flash_mode && <span className={`meta-chip ${hoveredMetaKey === 'flash_mode' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('flash_mode')} onMouseLeave={() => onMetaHover(null)} title="Flash mode">{metadata.flash_mode}</span>}
+            {metadata.white_balance && <span className={`meta-chip ${hoveredMetaKey === 'white_balance' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('white_balance')} onMouseLeave={() => onMetaHover(null)} title="White balance">{metadata.white_balance}</span>}
+            {metadata.exposure_mode && <span className={`meta-chip ${hoveredMetaKey === 'exposure_mode' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('exposure_mode')} onMouseLeave={() => onMetaHover(null)} title="Exposure mode">{metadata.exposure_mode}</span>}
+            {metadata.software && <span className={`meta-chip ${hoveredMetaKey === 'software' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('software')} onMouseLeave={() => onMetaHover(null)} title="Software / Firmware">{metadata.software}</span>}
+          </div>
+        )}
+      </div>
+
+      {zoom > 100 && (
+        <div className="zoom-indicator">
+          {zoom}%
+        </div>
+      )}
+
+      {layout === 'stacked' && (
+        <>
+          <div className="action-zones vertical">
+            <button className="zone-btn zone-star" title="Star Image">
+              <Star size={32} className="zone-icon" />
+            </button>
+            <button className="zone-btn zone-move" title="Move Image">
+              <Move size={32} className="zone-icon" />
+            </button>
+            <button className="zone-btn zone-delete" title="Delete Image">
+              <Trash2 size={32} className="zone-icon" />
+            </button>
+          </div>
+          <div
+            className="image-container flex-center"
+            onWheel={handleWheel}
+            onMouseDown={handleMouseDown}
+            onDoubleClick={() => onZoomPan(100, { x: 0, y: 0 })}
+            style={{ cursor: zoom > 100 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
+          >
+            {src ? (
+              <img src={src} alt={file.name} draggable={false} className="contained-image vertical-mode" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transition: isDragging ? 'none' : 'transform 0.1s ease-out' }} />
+            ) : (
+              <div className="thumbnail-loading" style={{ width: "100%", height: "100%" }} />
+            )}
+          </div>
+          <div className="layout-spacer" />
+        </>
+      )}
+
+      {layout === 'side' && (
+        <>
+          <div className="layout-spacer" />
+          <div
+            className="image-container flex-center"
+            onWheel={handleWheel}
+            onMouseDown={handleMouseDown}
+            onDoubleClick={() => onZoomPan(100, { x: 0, y: 0 })}
+            style={{ cursor: zoom > 100 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
+          >
+            {src ? (
+              <img src={src} alt={file.name} draggable={false} className="contained-image horizontal-mode" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transition: isDragging ? 'none' : 'transform 0.1s ease-out' }} />
+            ) : (
+              <div className="thumbnail-loading" style={{ width: "100%", height: "100%" }} />
+            )}
+          </div>
+          <div className="action-zones horizontal">
+            <button className="zone-btn zone-star" title="Star Image">
+              <Star size={32} className="zone-icon" />
+            </button>
+            <button className="zone-btn zone-move" title="Move Image">
+              <Move size={32} className="zone-icon" />
+            </button>
+            <button className="zone-btn zone-delete" title="Delete Image">
+              <Trash2 size={32} className="zone-icon" />
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function App() {
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(360);
+  const [isResizing, setIsResizing] = useState(false);
+  const [files, setFiles] = useState<ImageFile[]>([]);
+  const [currentFolderPath, setCurrentFolderPath] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [comparisonLayout, setComparisonLayout] = useState<'side' | 'stacked'>('side');
+  const [selectedImage1, setSelectedImage1] = useState<ImageFile | null>(null);
+  const [selectedImage2, setSelectedImage2] = useState<ImageFile | null>(null);
+  const [zoom, setZoom] = useState(100);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  const [metadata1, setMetadata1] = useState<ImageMetadata | null>(null);
+  const [metadata2, setMetadata2] = useState<ImageMetadata | null>(null);
+  const [showMetadata, setShowMetadata] = useState(false);
+  const [hoveredMetaKey, setHoveredMetaKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (selectedImage1) {
+      invoke<ImageMetadata>("get_image_metadata", { path: selectedImage1.fullPath }).then(setMetadata1).catch(() => setMetadata1(null));
+    } else setMetadata1(null);
+  }, [selectedImage1]);
+
+  useEffect(() => {
+    if (selectedImage2) {
+      invoke<ImageMetadata>("get_image_metadata", { path: selectedImage2.fullPath }).then(setMetadata2).catch(() => setMetadata2(null));
+    } else setMetadata2(null);
+  }, [selectedImage2]);
+
+  const handleZoomPan = useCallback((newZoom: number, newPan: { x: number, y: number }) => {
+    setZoom(newZoom);
+    setPan(newPan);
+  }, []);
+
+  const handlePanDelta = useCallback((dx: number, dy: number) => {
+    setPan((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+  }, []);
+
+  const handleImageClick = useCallback((file: ImageFile) => {
+    if (clickTimer.current) clearTimeout(clickTimer.current);
+    clickTimer.current = setTimeout(() => {
+      setSelectedImage1(file);
+      setZoom(100);
+      setPan({ x: 0, y: 0 });
+    }, 200);
+  }, []);
+
+  const handleImageDoubleClick = useCallback((file: ImageFile) => {
+    if (clickTimer.current) clearTimeout(clickTimer.current);
+    setSelectedImage2(file);
+    setZoom(100);
+    setPan({ x: 0, y: 0 });
+  }, []);
+
+
+  // Base names of all RAW files in the folder
+  const rawBaseNames = useMemo(
+    () =>
+      new Set(
+        files
+          .filter((f) => RAW_EXT.test(f.name ?? ""))
+          .map((f) => (f.name ?? "").replace(RAW_EXT, "").toLowerCase())
+      ),
+    [files] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  // Base names of all JPEG files in the folder
+  const jpegBaseNames = useMemo(
+    () =>
+      new Set(
+        files
+          .filter((f) => JPEG_EXT.test(f.name ?? ""))
+          .map((f) => (f.name ?? "").replace(JPEG_EXT, "").toLowerCase())
+      ),
+    [files] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  // Filtered list: hide RAW files that have a matching JPEG
+  const gridFiles = useMemo(
+    () =>
+      files.filter((f) => {
+        const name = f.name ?? "";
+        if (!RAW_EXT.test(name)) return true; // always show JPEGs / other
+        return !jpegBaseNames.has(name.replace(RAW_EXT, "").toLowerCase());
+      }),
+    [files, jpegBaseNames] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  const startResizing = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      setIsResizing(true);
+      if (isSidebarCollapsed) setIsSidebarCollapsed(false);
+    },
+    [isSidebarCollapsed]
+  );
+
+  const stopResizing = useCallback(() => setIsResizing(false), []);
+
+  const resize = useCallback(
+    (e: MouseEvent) => {
+      if (isResizing) {
+        const newWidth = e.clientX;
+        const minWidth = 260;
+        const maxWidth = window.innerWidth / 2;
+        if (newWidth >= minWidth && newWidth <= maxWidth) setSidebarWidth(newWidth);
+        else if (newWidth < minWidth && newWidth > 100) setSidebarWidth(minWidth);
+        else if (newWidth > maxWidth) setSidebarWidth(maxWidth);
+      }
+    },
+    [isResizing]
+  );
+
+  useEffect(() => {
+    if (isResizing) {
+      window.addEventListener("mousemove", resize);
+      window.addEventListener("mouseup", stopResizing);
+    }
+    return () => {
+      window.removeEventListener("mousemove", resize);
+      window.removeEventListener("mouseup", stopResizing);
+    };
+  }, [isResizing, resize, stopResizing]);
+
+  const handleOpenFolder = async () => {
+    try {
+      const selectedPath = await open({ directory: true, multiple: false });
+
+      if (selectedPath && typeof selectedPath === "string") {
+        invoke("clear_thumbnail_cache").catch(() => { });
+        setCurrentFolderPath(selectedPath);
+        setFiles([]);
+        setSelectedImage1(null);
+        setSelectedImage2(null);
+        setZoom(100);
+        setPan({ x: 0, y: 0 });
+
+        const entries = await readDir(selectedPath);
+
+        const validExtensions = [".jpg", ".jpeg", ".png"];
+        const rawExtensions = [".raf", ".cr2", ".nef", ".arw"];
+        const allExtensions = [...validExtensions, ...rawExtensions];
+
+        const filtered = entries.filter((entry) => {
+          if (!entry.isFile) return false;
+          const lowerName = (entry.name ?? "").toLowerCase();
+          return allExtensions.some((ext) => lowerName.endsWith(ext));
+        });
+
+        const imageFilesWithPaths: ImageFile[] = await Promise.all(
+          filtered.map(async (entry) => {
+            const fullPath = await join(selectedPath, entry.name ?? "");
+            return { ...entry, fullPath };
+          })
+        );
+
+        imageFilesWithPaths.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+        setFiles(imageFilesWithPaths);
+      }
+    } catch (error) {
+      console.error("Failed to open folder:", error);
+    }
+  };
+
+  return (
+    <div className="app-container" style={{ cursor: isResizing ? "col-resize" : "default" }}>
+      {/* Sidebar */}
+      <aside
+        className={`sidebar ${isSidebarCollapsed ? "collapsed" : ""} ${!isResizing ? "animating" : ""}`}
+        style={{ width: isSidebarCollapsed ? undefined : sidebarWidth }}
+      >
+        <div className="sidebar-header">
+          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            {!isSidebarCollapsed && (
+              <>
+                <button className="btn-icon" title="Filter">
+                  <Filter size={18} />
+                </button>
+                <div style={{ width: "1px", height: "16px", backgroundColor: "var(--border-color)", margin: "0 4px" }} />
+                <button
+                  className="btn-icon"
+                  title="Grid View"
+                  style={{ color: viewMode === "grid" ? "var(--text-primary)" : "var(--text-secondary)" }}
+                  onClick={() => setViewMode("grid")}
+                >
+                  <Grid size={18} />
+                </button>
+                <button
+                  className="btn-icon"
+                  title="List View"
+                  style={{ color: viewMode === "list" ? "var(--text-primary)" : "var(--text-secondary)" }}
+                  onClick={() => setViewMode("list")}
+                >
+                  <List size={18} />
+                </button>
+                <div style={{ width: "1px", height: "16px", backgroundColor: "var(--border-color)", margin: "0 4px" }} />
+                <button className="btn-icon btn-open-folder" title="Open Folder" onClick={handleOpenFolder}>
+                  <FolderPlus size={16} />
+                </button>
+                <div style={{ width: "1px", height: "16px", backgroundColor: "var(--border-color)", margin: "0 4px" }} />
+              </>
+            )}
+            <button
+              className="btn-icon"
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+            >
+              {isSidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+            </button>
+          </div>
+        </div>
+
+        <div className="sidebar-content sidebar-grid">
+          {isSidebarCollapsed ? (
+            <div style={{ display: "flex", justifyContent: "center", marginTop: "20px" }}>
+              <ImageIcon size={20} style={{ color: "var(--border-color)" }} />
+            </div>
+          ) : (
+            <>
+              {files.length === 0 ? (
+                <div className="thumbnail-grid-empty">
+                  <ImageIcon size={32} style={{ color: "var(--border-color)", marginBottom: "8px" }} />
+                  <p style={{ fontSize: "12px", color: "var(--text-secondary)", textAlign: "center" }}>
+                    No photos to display in grid.
+                  </p>
+                </div>
+              ) : viewMode === "list" ? (
+                <div className="file-list">
+                  {files.map((file, index) => (
+                    <div
+                      key={index}
+                      className={`file-list-item ${selectedImage1?.fullPath === file.fullPath && selectedImage2?.fullPath === file.fullPath
+                        ? "selected-both"
+                        : selectedImage1?.fullPath === file.fullPath
+                          ? "selected-1"
+                          : selectedImage2?.fullPath === file.fullPath
+                            ? "selected-2"
+                            : ""
+                        }`}
+                      onClick={() => handleImageClick(file)}
+                      onDoubleClick={() => handleImageDoubleClick(file)}
+                    >
+                      <FileImage size={16} className="file-icon" />
+                      <span className="file-name">{file.name}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="thumbnail-grid">
+                  {gridFiles.map((file, index) => {
+                    const isRaw = RAW_EXT.test(file.name ?? "");
+                    const pairedWithRaw =
+                      JPEG_EXT.test(file.name ?? "") &&
+                      rawBaseNames.has((file.name ?? "").replace(JPEG_EXT, "").toLowerCase());
+                    return (
+                      <div
+                        key={index}
+                        className="thumbnail-item"
+                        title={file.name}
+                        onClick={() => handleImageClick(file)}
+                        onDoubleClick={() => handleImageDoubleClick(file)}
+                        style={{
+                          border: (selectedImage1?.fullPath === file.fullPath && selectedImage2?.fullPath === file.fullPath)
+                            ? '2px solid #a855f7'
+                            : (selectedImage1?.fullPath === file.fullPath)
+                              ? '2px solid var(--accent-color)'
+                              : (selectedImage2?.fullPath === file.fullPath)
+                                ? '2px solid #ef4444'
+                                : '2px solid transparent'
+                        }}
+                      >
+                        <div className="thumbnail-item-media">
+                          {isRaw ? (
+                            <div className="thumbnail-raw-placeholder">
+                              <FileImage size={24} style={{ color: "var(--text-secondary)" }} />
+                              <span
+                                style={{
+                                  fontSize: "10px",
+                                  marginTop: "4px",
+                                  fontWeight: "bold",
+                                  color: "var(--text-secondary)",
+                                }}
+                              >
+                                RAW
+                              </span>
+                            </div>
+                          ) : (
+                            <Thumbnail file={file} />
+                          )}
+                          {pairedWithRaw && (
+                            <div className="raw-badge" title="A matching RAW file exists">
+                              <Layers size={10} />
+                              RAW
+                            </div>
+                          )}
+                        </div>
+                        <div className="thumbnail-name">{file.name}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Drag handle */}
+        {!isSidebarCollapsed && (
+          <div
+            className={`resizer ${isResizing ? "active" : ""}`}
+            onMouseDown={startResizing}
+          />
+        )}
+      </aside>
+
+      {/* Main Content Area */}
+      <main className="main-area" style={{ pointerEvents: isResizing ? "none" : "auto" }}>
+        <header className="topbar">
+          <div className="topbar-info">
+            {currentFolderPath && (
+              <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+                {files.length} images
+              </span>
+            )}
+          </div>
+          <div className="topbar-controls">
+            <button className="btn-icon" title="Info" onClick={() => setShowMetadata(!showMetadata)} style={{ color: showMetadata ? 'var(--accent-color)' : 'var(--text-secondary)' }}>
+              <Info size={18} />
+            </button>
+            <button
+              className="btn-icon"
+              title={comparisonLayout === 'side' ? 'Stack vertically' : 'Place side by side'}
+              onClick={() => setComparisonLayout(l => l === 'side' ? 'stacked' : 'side')}
+            >
+              {comparisonLayout === 'side' ? <Rows2 size={18} /> : <Columns2 size={18} />}
+            </button>
+          </div>
+        </header>
+
+        <div className="content-grid">
+          {files.length === 0 ? (
+            <div className="empty-state">
+              <FolderPlus className="empty-state-icon" strokeWidth={1} />
+              <h2 className="empty-state-title">No Photos Loaded</h2>
+              <p className="empty-state-desc">
+                Open a folder containing your RAW (.raf) and JPEG images to start culling and organizing.
+              </p>
+              <button className="btn-primary" style={{ marginTop: "8px" }} onClick={handleOpenFolder}>
+                Select Folder
+              </button>
+            </div>
+          ) : (
+            <div className={`comparison-placeholder ${comparisonLayout === 'stacked' ? 'stacked' : ''}`}>
+              <ImageView file={selectedImage1} placeholder="Click an image to view" layout={comparisonLayout} zoom={zoom} pan={pan} onZoomPan={handleZoomPan} onPanDelta={handlePanDelta} showMetadata={showMetadata} metadata={metadata1} hoveredMetaKey={hoveredMetaKey} onMetaHover={setHoveredMetaKey} />
+              <ImageView file={selectedImage2} placeholder="Double click an image to compare" layout={comparisonLayout} zoom={zoom} pan={pan} onZoomPan={handleZoomPan} onPanDelta={handlePanDelta} showMetadata={showMetadata} metadata={metadata2} hoveredMetaKey={hoveredMetaKey} onMetaHover={setHoveredMetaKey} />
+            </div>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+export default App;
