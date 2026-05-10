@@ -42,6 +42,11 @@ body,
   height: 100vh;
   width: 100vw;
   background-color: var(--bg-color);
+  flex-direction: row;
+}
+
+.app-container.layout-bottom {
+  flex-direction: column-reverse;
 }
 
 /* Sidebar */
@@ -55,14 +60,19 @@ body,
 }
 
 .sidebar.animating {
-  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.sidebar.collapsed {
+.sidebar.left.collapsed {
   width: 64px !important;
 }
 
-.resizer {
+.sidebar.bottom.collapsed {
+  height: 60px !important;
+}
+
+/* Resizer for Left Layout */
+.sidebar.left .resizer {
   position: absolute;
   top: 0;
   right: 0;
@@ -74,10 +84,29 @@ body,
   z-index: 10;
 }
 
-.resizer:hover,
-.resizer.active {
+.sidebar.left .resizer:hover,
+.sidebar.left .resizer.active {
   background-color: var(--accent-color);
   width: 6px;
+}
+
+/* Resizer for Bottom Layout */
+.sidebar.bottom .resizer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  cursor: row-resize;
+  background-color: var(--border-color);
+  transition: background-color 0.2s ease, height 0.2s ease;
+  z-index: 10;
+}
+
+.sidebar.bottom .resizer:hover,
+.sidebar.bottom .resizer.active {
+  background-color: var(--accent-color);
+  height: 6px;
 }
 
 .sidebar-header {
@@ -94,12 +123,12 @@ body,
   justify-content: space-between;
 }
 
-.sidebar.collapsed .sidebar-header {
+.sidebar.left.collapsed .sidebar-header {
   padding: 0;
   justify-content: center;
 }
 
-.sidebar.collapsed .sidebar-title {
+.sidebar.left.collapsed .sidebar-title {
   display: none;
 }
 
@@ -110,6 +139,13 @@ body,
   padding: 16px;
   direction: rtl;
   /* moves scrollbar to left side */
+}
+
+.sidebar.bottom .sidebar-content {
+  overflow-x: auto;
+  overflow-y: hidden;
+  direction: ltr;
+  /* Reset text direction for horizontal scrolling */
 }
 
 .sidebar-content>* {
@@ -130,6 +166,16 @@ body,
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.sidebar.bottom .file-list {
+  display: grid;
+  grid-template-columns: none;
+  grid-auto-columns: 220px;
+  grid-template-rows: repeat(auto-fill, minmax(36px, 1fr));
+  grid-auto-flow: column;
+  gap: 4px 12px;
+  height: 100%;
 }
 
 .file-list-item {
@@ -180,6 +226,16 @@ body,
   grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
   gap: 8px;
   padding-right: 4px;
+}
+
+.sidebar.bottom .thumbnail-grid {
+  grid-template-columns: none;
+  grid-auto-columns: 110px;
+  grid-template-rows: repeat(auto-fill, minmax(130px, 1fr));
+  grid-auto-flow: column;
+  height: 100%;
+  padding-right: 16px;
+  padding-bottom: 4px;
 }
 
 .thumbnail-item {
@@ -470,7 +526,7 @@ body,
 /* Zoom Indicator */
 .zoom-indicator {
   position: absolute;
-  bottom: 170px;
+  bottom: 17%;
   left: 50%;
   transform: translateX(-50%);
   background: rgba(0, 0, 0, 0.6);
@@ -485,11 +541,34 @@ body,
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
 }
 
+/* Bottom layout mode where action zones are 10% */
+.layout-bottom .zoom-indicator {
+  bottom: 90px;
+}
+
+/* Stacked layout where action zones are vertical (no bottom overlap) */
+.comparison-placeholder.stacked .zoom-indicator {
+  bottom: 10px;
+}
+
 /* Layout Spacer for Centering */
 .layout-spacer {
   flex: 0 0 64px;
   /* Mirrors the thickness of the buttons to keep the image perfectly centered */
   pointer-events: none;
+}
+
+/* Reduced top gap in horizontal mode to allow image to expand higher */
+.layout-spacer.top-spacer {
+  flex: 0 0 50px;
+}
+
+.layout-spacer.right-spacer {
+  flex: 0 0 250px;
+}
+
+.layout-bottom .layout-spacer.right-spacer {
+  flex: 0 0 350px;
 }
 
 .image-container.flex-center {
@@ -524,21 +603,36 @@ body,
 .action-zones.horizontal {
   display: flex;
   flex-direction: row;
-  flex: 0 0 150px;
+  flex: 0 0 15%;
   /* Fixed height, does not shrink or grow */
   width: 100%;
   /* Stretches boundary to boundary */
   z-index: 5;
 }
 
+/* Override height for the new bottom sidebar mode */
+.layout-bottom .action-zones.horizontal {
+  flex: 0 0 80px;
+}
+
+.layout-bottom .action-zones.horizontal .zone-icon {
+  width: 30px;
+  height: 30px;
+}
+
 .action-zones.vertical {
   display: flex;
   flex-direction: column;
-  flex: 0 0 200px;
+  flex: 0 0 250px;
   /* Fixed width, does not shrink or grow */
   height: 100%;
   /* Stretches boundary to boundary */
   z-index: 5;
+}
+
+/* Override height for the new bottom sidebar mode */
+.layout-bottom .action-zones.action-zones.vertical {
+  flex: 0 0 350px;
 }
 
 .zone-btn {

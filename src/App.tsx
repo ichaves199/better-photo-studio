@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { FolderPlus, Filter, Grid, List, PanelLeftClose, PanelLeftOpen, Image as ImageIcon, FileImage, Layers, Columns2, Rows2, Info, Star, Move, Trash2 } from "lucide-react";
+import { FolderPlus, Filter, Grid, List, PanelLeftClose, PanelLeftOpen, PanelBottomClose, PanelBottomOpen, PanelBottom, PanelLeft, Image as ImageIcon, FileImage, Layers, Columns2, Rows2, Info, Star, Move, Trash2 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readDir, DirEntry } from "@tauri-apps/plugin-fs";
 import { join } from "@tauri-apps/api/path";
@@ -216,10 +216,10 @@ function ImageView({ file, placeholder, layout, zoom, pan, onZoomPan, onPanDelta
         flexDirection: layout === 'side' ? 'column' : 'row'
       }}
     >
-      <div className={`file-name-badge-top ${layout === 'stacked' ? 'right-side' : ''}`} style={{ zIndex: 10, display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-start', maxWidth: '80%' }}>
+      <div className={`file-name-badge-top ${layout === 'stacked' ? 'right-side' : ''}`} style={{ zIndex: 10, display: 'flex', flexDirection: 'column', gap: '6px', alignItems: layout === 'stacked' ? 'flex-end' : 'flex-start', maxWidth: layout === 'stacked' ? '300px' : '80%' }}>
         <span style={{ fontWeight: 600 }}>{file.name}</span>
         {showMetadata && metadata && (
-          <div className="metadata-chips" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+          <div className="metadata-chips" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: layout === 'stacked' ? 'flex-end' : 'flex-start' }}>
             {metadata.dimensions && <span className={`meta-chip ${hoveredMetaKey === 'dimensions' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('dimensions')} onMouseLeave={() => onMetaHover(null)} title="Dimensions">{metadata.dimensions}</span>}
             {metadata.date_taken && <span className={`meta-chip ${hoveredMetaKey === 'date_taken' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('date_taken')} onMouseLeave={() => onMetaHover(null)} title="Date taken">{metadata.date_taken}</span>}
             {metadata.camera_maker && <span className={`meta-chip ${hoveredMetaKey === 'camera_maker' ? 'meta-chip-hover' : ''}`} onMouseEnter={() => onMetaHover('camera_maker')} onMouseLeave={() => onMetaHover(null)} title="Camera maker">{metadata.camera_maker}</span>}
@@ -272,13 +272,13 @@ function ImageView({ file, placeholder, layout, zoom, pan, onZoomPan, onPanDelta
               <div className="thumbnail-loading" style={{ width: "100%", height: "100%" }} />
             )}
           </div>
-          <div className="layout-spacer" />
+          <div className="layout-spacer right-spacer" />
         </>
       )}
 
       {layout === 'side' && (
         <>
-          <div className="layout-spacer" />
+          <div className="layout-spacer top-spacer" />
           <div
             className="image-container flex-center"
             onWheel={handleWheel}
@@ -311,7 +311,9 @@ function ImageView({ file, placeholder, layout, zoom, pan, onZoomPan, onPanDelta
 
 function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [sidebarPosition, setSidebarPosition] = useState<'left' | 'bottom'>('left');
   const [sidebarWidth, setSidebarWidth] = useState(360);
+  const [sidebarHeight, setSidebarHeight] = useState(250);
   const [isResizing, setIsResizing] = useState(false);
   const [files, setFiles] = useState<ImageFile[]>([]);
   const [currentFolderPath, setCurrentFolderPath] = useState<string | null>(null);
@@ -413,15 +415,24 @@ function App() {
   const resize = useCallback(
     (e: MouseEvent) => {
       if (isResizing) {
-        const newWidth = e.clientX;
-        const minWidth = 260;
-        const maxWidth = window.innerWidth / 2;
-        if (newWidth >= minWidth && newWidth <= maxWidth) setSidebarWidth(newWidth);
-        else if (newWidth < minWidth && newWidth > 100) setSidebarWidth(minWidth);
-        else if (newWidth > maxWidth) setSidebarWidth(maxWidth);
+        if (sidebarPosition === 'left') {
+          const newWidth = e.clientX;
+          const minWidth = 260;
+          const maxWidth = window.innerWidth / 2;
+          if (newWidth >= minWidth && newWidth <= maxWidth) setSidebarWidth(newWidth);
+          else if (newWidth < minWidth && newWidth > 100) setSidebarWidth(minWidth);
+          else if (newWidth > maxWidth) setSidebarWidth(maxWidth);
+        } else {
+          const newHeight = window.innerHeight - e.clientY;
+          const minHeight = 150;
+          const maxHeight = window.innerHeight * 0.8;
+          if (newHeight >= minHeight && newHeight <= maxHeight) setSidebarHeight(newHeight);
+          else if (newHeight < minHeight && newHeight > 50) setSidebarHeight(minHeight);
+          else if (newHeight > maxHeight) setSidebarHeight(maxHeight);
+        }
       }
     },
-    [isResizing]
+    [isResizing, sidebarPosition]
   );
 
   useEffect(() => {
@@ -476,11 +487,14 @@ function App() {
   };
 
   return (
-    <div className="app-container" style={{ cursor: isResizing ? "col-resize" : "default" }}>
+    <div className={`app-container ${sidebarPosition === 'bottom' ? 'layout-bottom' : ''}`} style={{ cursor: isResizing ? (sidebarPosition === 'left' ? "col-resize" : "row-resize") : "default" }}>
       {/* Sidebar */}
       <aside
-        className={`sidebar ${isSidebarCollapsed ? "collapsed" : ""} ${!isResizing ? "animating" : ""}`}
-        style={{ width: isSidebarCollapsed ? undefined : sidebarWidth }}
+        className={`sidebar ${sidebarPosition} ${isSidebarCollapsed ? "collapsed" : ""} ${!isResizing ? "animating" : ""}`}
+        style={{
+          width: sidebarPosition === 'left' ? (isSidebarCollapsed ? undefined : sidebarWidth) : '100%',
+          height: sidebarPosition === 'bottom' ? (isSidebarCollapsed ? undefined : sidebarHeight) : '100%',
+        }}
       >
         <div className="sidebar-header">
           <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
@@ -515,15 +529,33 @@ function App() {
             )}
             <button
               className="btn-icon"
+              onClick={() => setSidebarPosition(p => p === 'left' ? 'bottom' : 'left')}
+              title={sidebarPosition === 'left' ? "Move Sidebar to Bottom" : "Move Sidebar to Left"}
+            >
+              {sidebarPosition === 'left' ? <PanelBottom size={18} /> : <PanelLeft size={18} />}
+            </button>
+            <button
+              className="btn-icon"
               onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
               title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
             >
-              {isSidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+              {sidebarPosition === 'left' ? (
+                isSidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />
+              ) : (
+                isSidebarCollapsed ? <PanelBottomOpen size={18} /> : <PanelBottomClose size={18} />
+              )}
             </button>
           </div>
         </div>
 
-        <div className="sidebar-content sidebar-grid">
+        <div
+          className="sidebar-content sidebar-grid"
+          onWheel={(e) => {
+            if (sidebarPosition === 'bottom' && e.deltaY !== 0) {
+              e.currentTarget.scrollLeft += e.deltaY;
+            }
+          }}
+        >
           {isSidebarCollapsed ? (
             <div style={{ display: "flex", justifyContent: "center", marginTop: "20px" }}>
               <ImageIcon size={20} style={{ color: "var(--border-color)" }} />
