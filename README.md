@@ -21,6 +21,8 @@ A high-performance desktop application designed for photographers to efficiently
 
 ![Better Photo Chooser Example](public/assets/example2.png)
 
+![Better Photo Chooser Example](public/assets/example3.png)
+
 ## Technical Stack
 
 *   **Backend (Rust):** 
