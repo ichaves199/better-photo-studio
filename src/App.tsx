@@ -111,7 +111,7 @@ function Thumbnail({ file }: { file: ImageFile }) {
 const RAW_EXT = /\.(raf|cr2|nef|arw)$/i;
 const JPEG_EXT = /\.(jpg|jpeg|png)$/i;
 
-function ImageView({ file, placeholder, comparisonLayout, zoom, pan, onZoomPan, onPanDelta, showMetadata, metadata, otherMetadata, hoveredMetaKey, onMetaHover }: { file: ImageFile | null; placeholder: string; comparisonLayout: 'sidebyside' | 'stacked'; zoom: number; pan: { x: number, y: number }; onZoomPan: (zoom: number, pan: { x: number, y: number }) => void; onPanDelta: (dx: number, dy: number) => void; showMetadata: boolean; metadata: ImageMetadata | null; otherMetadata: ImageMetadata | null; hoveredMetaKey: string | null; onMetaHover: (key: string | null) => void; }) {
+function ImageView({ file, placeholder, comparisonLayout, zoom, pan, onZoomPan, onPanDelta, showMetadata, metadata, otherMetadata, hoveredMetaKey, onMetaHover, onDelete, isDeleting, onStar, isStarred }: { file: ImageFile | null; placeholder: string; comparisonLayout: 'sidebyside' | 'stacked'; zoom: number; pan: { x: number, y: number }; onZoomPan: (zoom: number, pan: { x: number, y: number }) => void; onPanDelta: (dx: number, dy: number) => void; showMetadata: boolean; metadata: ImageMetadata | null; otherMetadata: ImageMetadata | null; hoveredMetaKey: string | null; onMetaHover: (key: string | null) => void; onDelete?: () => void; isDeleting?: boolean; onStar?: () => void; isStarred?: boolean; }) {
   const [src, setSrc] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
@@ -258,13 +258,22 @@ function ImageView({ file, placeholder, comparisonLayout, zoom, pan, onZoomPan, 
       {comparisonLayout === 'stacked' && (
         <>
           <div className="action-zones stacked">
-            <button className="zone-btn zone-star" title="Star Image">
+            <button
+              className={`zone-btn zone-star ${isStarred ? 'zone-star--active' : ''}`}
+              title={isStarred ? 'Starred (5 stars)' : 'Star Image (5 stars)'}
+              onClick={onStar}
+            >
               <Star size={32} className="zone-icon" />
             </button>
             <button className="zone-btn zone-move" title="Move Image">
               <Move size={32} className="zone-icon" />
             </button>
-            <button className="zone-btn zone-delete" title="Delete Image">
+            <button
+              className={`zone-btn zone-delete ${isDeleting ? 'zone-delete--busy' : ''}`}
+              title="Send to Recycle Bin"
+              onClick={onDelete}
+              disabled={isDeleting}
+            >
               <Trash2 size={32} className="zone-icon" />
             </button>
           </div>
@@ -302,13 +311,22 @@ function ImageView({ file, placeholder, comparisonLayout, zoom, pan, onZoomPan, 
             )}
           </div>
           <div className="action-zones sidebyside">
-            <button className="zone-btn zone-star" title="Star Image">
+            <button
+              className={`zone-btn zone-star ${isStarred ? 'zone-star--active' : ''}`}
+              title={isStarred ? 'Starred (5 stars)' : 'Star Image (5 stars)'}
+              onClick={onStar}
+            >
               <Star size={32} className="zone-icon" />
             </button>
             <button className="zone-btn zone-move" title="Move Image">
               <Move size={32} className="zone-icon" />
             </button>
-            <button className="zone-btn zone-delete" title="Delete Image">
+            <button
+              className={`zone-btn zone-delete ${isDeleting ? 'zone-delete--busy' : ''}`}
+              title="Send to Recycle Bin"
+              onClick={onDelete}
+              disabled={isDeleting}
+            >
               <Trash2 size={32} className="zone-icon" />
             </button>
           </div>
@@ -338,6 +356,10 @@ function App() {
   const [metadata2, setMetadata2] = useState<ImageMetadata | null>(null);
   const [showMetadata, setShowMetadata] = useState(false);
   const [hoveredMetaKey, setHoveredMetaKey] = useState<string | null>(null);
+  const [isDeleting1, setIsDeleting1] = useState(false);
+  const [isDeleting2, setIsDeleting2] = useState(false);
+  // fullPath -> rating (0-5); 5 = starred
+  const [ratings, setRatings] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (selectedImage1) {
@@ -375,6 +397,82 @@ function App() {
     setZoom(100);
     setPan({ x: 0, y: 0 });
   }, []);
+
+  // Build a star handler for the given comparison slot.
+  // Stars the JPEG (embedded XMP) and its paired RAW (sidecar) with rating=5.
+  const makeStarHandler = useCallback(
+    (file: ImageFile, currentlyStarred: boolean) => async () => {
+      const newRating = currentlyStarred ? 0 : 5; // Toggle logic
+      const pathsToStar: string[] = [file.fullPath];
+
+      // Find paired file in either direction
+      if (JPEG_EXT.test(file.name ?? '')) {
+        const base = (file.name ?? '').replace(JPEG_EXT, '').toLowerCase();
+        const raw = files.find(f => RAW_EXT.test(f.name ?? '') && (f.name ?? '').replace(RAW_EXT, '').toLowerCase() === base);
+        if (raw) pathsToStar.push(raw.fullPath);
+      } else if (RAW_EXT.test(file.name ?? '')) {
+        const base = (file.name ?? '').replace(RAW_EXT, '').toLowerCase();
+        const jpeg = files.find(f => JPEG_EXT.test(f.name ?? '') && (f.name ?? '').replace(JPEG_EXT, '').toLowerCase() === base);
+        if (jpeg) pathsToStar.push(jpeg.fullPath);
+      }
+
+      try {
+        await Promise.all(pathsToStar.map(p => invoke('set_rating', { path: p, rating: newRating })));
+        setRatings(prev => {
+          const next = { ...prev };
+          pathsToStar.forEach(p => { next[p] = newRating; }); // Apply new rating to UI state
+          return next;
+        });
+      } catch (err) {
+        console.error('Failed to set rating:', err);
+        alert(`Failed to set rating:\n${err}`);
+      }
+    },
+    [files]
+  );
+
+  // Build a delete handler for the given slot (1 or 2).
+  // It trashes the JPEG and its paired RAW (if any), then cleans up state.
+  const makeDeleteHandler = useCallback(
+    (file: ImageFile, setDeleting: (v: boolean) => void) => async () => {
+      if (!window.confirm(`Send "${file.name}" to the Recycle Bin?\nIts paired RAW file (if any) will also be trashed.`)) return;
+
+      setDeleting(true);
+      try {
+        const pathsToTrash: string[] = [file.fullPath];
+
+        // Synchronously resolve the paired RAW path from the current files list
+        if (JPEG_EXT.test(file.name ?? '')) {
+          const baseName = (file.name ?? '').replace(JPEG_EXT, '').toLowerCase();
+          const raw = files.find(f =>
+            RAW_EXT.test(f.name ?? '') &&
+            (f.name ?? '').replace(RAW_EXT, '').toLowerCase() === baseName
+          );
+          if (raw) pathsToTrash.push(raw.fullPath);
+        }
+
+        await invoke('trash_files', { paths: pathsToTrash });
+
+        // Remove trashed files from state
+        const trashedSet = new Set(pathsToTrash);
+        setFiles(prev => prev.filter(f => !trashedSet.has(f.fullPath)));
+        if (selectedImage1 && trashedSet.has(selectedImage1.fullPath)) {
+          setSelectedImage1(null);
+          setZoom(100); setPan({ x: 0, y: 0 });
+        }
+        if (selectedImage2 && trashedSet.has(selectedImage2.fullPath)) {
+          setSelectedImage2(null);
+          setZoom(100); setPan({ x: 0, y: 0 });
+        }
+      } catch (err) {
+        console.error('Failed to trash files:', err);
+        alert(`Failed to delete file:\n${err}`);
+      } finally {
+        setDeleting(false);
+      }
+    },
+    [files, selectedImage1, selectedImage2]
+  );
 
 
   // Base names of all RAW files in the folder
@@ -489,11 +587,22 @@ function App() {
 
         imageFilesWithPaths.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
         setFiles(imageFilesWithPaths);
+        setRatings({});
+
+        // Load existing ratings in background (non-blocking)
+        imageFilesWithPaths.forEach(f => {
+          invoke<number | null>('get_rating', { path: f.fullPath })
+            .then(r => { if (r != null) setRatings(prev => ({ ...prev, [f.fullPath]: r })); })
+            .catch(() => { });
+        });
       }
     } catch (error) {
       console.error("Failed to open folder:", error);
     }
   };
+
+  const isStarred1 = !!(selectedImage1 && ratings[selectedImage1.fullPath] === 5);
+  const isStarred2 = !!(selectedImage2 && ratings[selectedImage2.fullPath] === 5);
 
   return (
     <div className={`app-container ${sidebarLayout === 'bottom' ? 'sidebar-bottom' : ''}`} style={{ cursor: isResizing ? (sidebarLayout === 'left' ? "col-resize" : "row-resize") : "default" }}>
@@ -580,9 +689,9 @@ function App() {
                 </div>
               ) : viewMode === "list" ? (
                 <div className="file-list">
-                  {files.map((file, index) => (
+                  {files.map((file) => (
                     <div
-                      key={index}
+                      key={file.fullPath}
                       className={`file-list-item ${selectedImage1?.fullPath === file.fullPath && selectedImage2?.fullPath === file.fullPath
                         ? "selected-both"
                         : selectedImage1?.fullPath === file.fullPath
@@ -601,14 +710,14 @@ function App() {
                 </div>
               ) : (
                 <div className="thumbnail-grid">
-                  {gridFiles.map((file, index) => {
+                  {gridFiles.map((file) => {
                     const isRaw = RAW_EXT.test(file.name ?? "");
                     const pairedWithRaw =
                       JPEG_EXT.test(file.name ?? "") &&
                       rawBaseNames.has((file.name ?? "").replace(JPEG_EXT, "").toLowerCase());
                     return (
                       <div
-                        key={index}
+                        key={file.fullPath}
                         className="thumbnail-item"
                         title={file.name}
                         onClick={() => handleImageClick(file)}
@@ -645,6 +754,11 @@ function App() {
                             <div className="raw-badge" title="A matching RAW file exists">
                               <Layers size={10} />
                               RAW
+                            </div>
+                          )}
+                          {ratings[file.fullPath] === 5 && (
+                            <div className="star-badge" title="5 stars">
+                              <Star size={9} />
                             </div>
                           )}
                         </div>
@@ -705,8 +819,8 @@ function App() {
             </div>
           ) : (
             <div className={`comparison-placeholder ${comparisonLayout === 'stacked' ? 'stacked' : ''}`}>
-              <ImageView file={selectedImage1} placeholder="Click an image to view" comparisonLayout={comparisonLayout} zoom={zoom} pan={pan} onZoomPan={handleZoomPan} onPanDelta={handlePanDelta} showMetadata={showMetadata} metadata={metadata1} otherMetadata={metadata2} hoveredMetaKey={hoveredMetaKey} onMetaHover={setHoveredMetaKey} />
-              <ImageView file={selectedImage2} placeholder="Double click an image to compare" comparisonLayout={comparisonLayout} zoom={zoom} pan={pan} onZoomPan={handleZoomPan} onPanDelta={handlePanDelta} showMetadata={showMetadata} metadata={metadata2} otherMetadata={metadata1} hoveredMetaKey={hoveredMetaKey} onMetaHover={setHoveredMetaKey} />
+              <ImageView file={selectedImage1} placeholder="Click an image to view" comparisonLayout={comparisonLayout} zoom={zoom} pan={pan} onZoomPan={handleZoomPan} onPanDelta={handlePanDelta} showMetadata={showMetadata} metadata={metadata1} otherMetadata={metadata2} hoveredMetaKey={hoveredMetaKey} onMetaHover={setHoveredMetaKey} onDelete={selectedImage1 ? makeDeleteHandler(selectedImage1, setIsDeleting1) : undefined} isDeleting={isDeleting1} onStar={selectedImage1 ? makeStarHandler(selectedImage1, isStarred1) : undefined} isStarred={isStarred1} />
+              <ImageView file={selectedImage2} placeholder="Double click an image to compare" comparisonLayout={comparisonLayout} zoom={zoom} pan={pan} onZoomPan={handleZoomPan} onPanDelta={handlePanDelta} showMetadata={showMetadata} metadata={metadata2} otherMetadata={metadata1} hoveredMetaKey={hoveredMetaKey} onMetaHover={setHoveredMetaKey} onDelete={selectedImage2 ? makeDeleteHandler(selectedImage2, setIsDeleting2) : undefined} isDeleting={isDeleting2} onStar={selectedImage2 ? makeStarHandler(selectedImage2, isStarred2) : undefined} isStarred={isStarred2} />
             </div>
           )}
         </div>

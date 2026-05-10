@@ -188,6 +188,31 @@ async fn get_thumbnail_path(path: String, max_size: Option<u32>) -> Result<Strin
         .ok_or_else(|| "Non-UTF8 thumbnail path".to_string())
 }
 
+/// Move one or more files to the OS Recycle Bin / Trash.
+/// Paths that don't exist are silently ignored (e.g. no paired RAW file).
+#[tauri::command]
+async fn trash_files(paths: Vec<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut errors: Vec<String> = Vec::new();
+        for path in &paths {
+            let p = std::path::Path::new(path);
+            if !p.exists() {
+                continue; // paired RAW may not exist — skip silently
+            }
+            if let Err(e) = trash::delete(p) {
+                errors.push(format!("{}: {}", path, e));
+            }
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("; "))
+        }
+    })
+    .await
+    .map_err(|e| format!("Thread join error: {}", e))?
+}
+
 #[tauri::command]
 async fn clear_thumbnail_cache() -> Result<(), String> {
     let dir = thumb_dir().clone();
@@ -303,6 +328,198 @@ async fn get_image_metadata(path: String) -> Result<ImageMetadata, String> {
     }).await.map_err(|e| e.to_string())?
 }
 
+// ── XMP Rating helpers ───────────────────────────────────────────────────────
+
+const XMP_NS_HEADER: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
+const JPEG_APP1: u8 = 0xE1;
+
+/// Build a minimal, self-contained XMP packet string.
+fn build_xmp_packet(rating: u8) -> String {
+    format!(
+        r#"<?xpacket begin="\xEF\xBB\xBF" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+      xmlns:xmp="http://ns.adobe.com/xap/1.0/">
+      <xmp:Rating>{rating}</xmp:Rating>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>"#
+    )
+}
+
+/// Update or insert `xmp:Rating` inside an existing XMP packet string.
+fn patch_xmp_rating(xmp: &str, rating: u8) -> String {
+    let new_tag = format!("<xmp:Rating>{rating}</xmp:Rating>");
+    // Replace existing tag
+    if let Some(s) = xmp.find("<xmp:Rating>") {
+        if let Some(rel_e) = xmp[s..].find("</xmp:Rating>") {
+            let e = s + rel_e + "</xmp:Rating>".len();
+            return format!("{}{}{}", &xmp[..s], new_tag, &xmp[e..]);
+        }
+    }
+    // Insert before closing </rdf:Description> if namespace already present
+    if xmp.contains("xmlns:xmp") {
+        if let Some(pos) = xmp.rfind("</rdf:Description>") {
+            return format!("{}      {}\n    {}", &xmp[..pos], new_tag, &xmp[pos..]);
+        }
+    }
+    // Fallback: fresh packet
+    build_xmp_packet(rating)
+}
+
+/// Extract the numeric rating from an XMP packet string.
+fn read_xmp_rating(xmp: &str) -> Option<u8> {
+    let s = xmp.find("<xmp:Rating>")? + "<xmp:Rating>".len();
+    let e = xmp[s..].find("</xmp:Rating>")?;
+    xmp[s..s + e].trim().parse().ok()
+}
+
+// ── JPEG (embedded XMP) — manual byte-level implementation ──────────────────
+// JPEG structure: SOI (FF D8) followed by segments FF <marker> <len_hi> <len_lo> <data>.
+// XMP lives in an APP1 (FF E1) segment whose data starts with the 29-byte namespace header.
+
+/// Scan `data` for the XMP APP1 segment.
+/// Returns `(seg_start, seg_end)` — byte offsets into `data`.
+fn jpeg_find_xmp(data: &[u8]) -> Option<(usize, usize)> {
+    if data.len() < 2 || data[0] != 0xFF || data[1] != 0xD8 { return None; }
+    let mut pos = 2;
+    while pos + 3 < data.len() {
+        if data[pos] != 0xFF { return None; }
+        let marker = data[pos + 1];
+        // Markers with no payload
+        if marker == 0xD8 || marker == 0xD9 || (0xD0..=0xD7).contains(&marker) {
+            pos += 2;
+            continue;
+        }
+        let seg_len = u16::from_be_bytes([data[pos + 2], data[pos + 3]]) as usize;
+        let seg_end = pos + 2 + seg_len;
+        if seg_end > data.len() { return None; }
+        if marker == 0xE1 {
+            let payload = &data[pos + 4..seg_end];
+            if payload.len() >= XMP_NS_HEADER.len() && payload.starts_with(XMP_NS_HEADER) {
+                return Some((pos, seg_end));
+            }
+        }
+        pos = seg_end;
+    }
+    None
+}
+
+/// Build a raw APP1 XMP segment (marker + big-endian length + header + packet).
+fn jpeg_build_xmp_seg(packet: &str) -> Vec<u8> {
+    let payload_len = XMP_NS_HEADER.len() + packet.len();
+    let seg_len = (payload_len + 2) as u16; // +2 for the length field itself
+    let mut seg = vec![0xFF, JPEG_APP1];
+    seg.extend_from_slice(&seg_len.to_be_bytes());
+    seg.extend_from_slice(XMP_NS_HEADER);
+    seg.extend_from_slice(packet.as_bytes());
+    seg
+}
+
+fn jpeg_set_rating(path: &str, rating: u8) -> Result<(), String> {
+    let data = std::fs::read(path).map_err(|e| e.to_string())?;
+    if data.len() < 2 || data[0] != 0xFF || data[1] != 0xD8 {
+        return Err("Not a valid JPEG".into());
+    }
+
+    // Read existing XMP packet (if any)
+    let existing_xmp = jpeg_find_xmp(&data).and_then(|(s, e)| {
+        let payload = &data[s + 4..e];
+        String::from_utf8(payload[XMP_NS_HEADER.len()..].to_vec()).ok()
+    });
+    let packet = match existing_xmp {
+        Some(x) => patch_xmp_rating(&x, rating),
+        None     => build_xmp_packet(rating),
+    };
+    let new_seg = jpeg_build_xmp_seg(&packet);
+
+    // Assemble output: SOI + (pre-XMP bytes) + new_seg + (post-XMP bytes)
+    let mut out: Vec<u8> = Vec::with_capacity(data.len() + new_seg.len());
+    out.extend_from_slice(&data[..2]); // SOI
+    match jpeg_find_xmp(&data) {
+        Some((xs, xe)) => {
+            out.extend_from_slice(&data[2..xs]);
+            out.extend_from_slice(&new_seg);
+            out.extend_from_slice(&data[xe..]);
+        }
+        None => {
+            // Insert after first APP1 (EXIF) if present, else right after SOI
+            let insert = if data.len() > 5 && data[2] == 0xFF && data[3] == 0xE1 {
+                let exif_len = u16::from_be_bytes([data[4], data[5]]) as usize;
+                let exif_end = 2 + 2 + exif_len;
+                if exif_end <= data.len() { exif_end } else { 2 }
+            } else { 2 };
+            out.extend_from_slice(&data[2..insert]);
+            out.extend_from_slice(&new_seg);
+            out.extend_from_slice(&data[insert..]);
+        }
+    }
+    std::fs::write(path, out).map_err(|e| e.to_string())
+}
+
+fn jpeg_get_rating(path: &str) -> Option<u8> {
+    let data = std::fs::read(path).ok()?;
+    let (s, e) = jpeg_find_xmp(&data)?;
+    let payload = &data[s + 4..e];
+    let xmp = std::str::from_utf8(&payload[XMP_NS_HEADER.len()..]).ok()?;
+    read_xmp_rating(xmp)
+}
+
+// ── RAW (XMP sidecar) ────────────────────────────────────────────────────────
+
+fn sidecar_path(raw_path: &str) -> std::path::PathBuf {
+    std::path::Path::new(raw_path).with_extension("xmp")
+}
+
+fn raw_set_rating(raw_path: &str, rating: u8) -> Result<(), String> {
+    let sidecar = sidecar_path(raw_path);
+    let packet = if sidecar.exists() {
+        let existing = std::fs::read_to_string(&sidecar).map_err(|e| e.to_string())?;
+        patch_xmp_rating(&existing, rating)
+    } else {
+        build_xmp_packet(rating)
+    };
+    std::fs::write(&sidecar, packet).map_err(|e| e.to_string())
+}
+
+fn raw_get_rating(raw_path: &str) -> Option<u8> {
+    let xmp = std::fs::read_to_string(sidecar_path(raw_path)).ok()?;
+    read_xmp_rating(&xmp)
+}
+
+// ── Tauri commands ────────────────────────────────────────────────────────────
+
+#[tauri::command]
+async fn set_rating(path: String, rating: u8) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let low = path.to_lowercase();
+        if low.ends_with(".jpg") || low.ends_with(".jpeg") || low.ends_with(".png") {
+            jpeg_set_rating(&path, rating)
+        } else {
+            raw_set_rating(&path, rating)
+        }
+    })
+    .await
+    .map_err(|e| format!("Thread join error: {}", e))?
+}
+
+#[tauri::command]
+async fn get_rating(path: String) -> Result<Option<u8>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let low = path.to_lowercase();
+        let r = if low.ends_with(".jpg") || low.ends_with(".jpeg") || low.ends_with(".png") {
+            jpeg_get_rating(&path)
+        } else {
+            raw_get_rating(&path)
+        };
+        Ok::<_, String>(r)
+    })
+    .await
+    .map_err(|e| format!("Thread join error: {}", e))?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -320,7 +537,7 @@ pub fn run() {
             THUMB_DIR.set(cache_dir).ok();
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_thumbnail_path, clear_thumbnail_cache, get_image_metadata])
+        .invoke_handler(tauri::generate_handler![get_thumbnail_path, clear_thumbnail_cache, get_image_metadata, trash_files, set_rating, get_rating])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
