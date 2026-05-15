@@ -398,11 +398,10 @@ function App() {
     setPan({ x: 0, y: 0 });
   }, []);
 
-  // Build a star handler for the given comparison slot.
-  // Stars the JPEG (embedded XMP) and its paired RAW (sidecar) with rating=5.
+  // Stars the JPEG (embedded XMP) and its paired RAW (sidecar) with rating=5
   const makeStarHandler = useCallback(
     (file: ImageFile, currentlyStarred: boolean) => async () => {
-      const newRating = currentlyStarred ? 0 : 5; // Toggle logic
+      const newRating = currentlyStarred ? 0 : 5;
       const pathsToStar: string[] = [file.fullPath];
 
       // Find paired file in either direction
@@ -420,7 +419,7 @@ function App() {
         await Promise.all(pathsToStar.map(p => invoke('set_rating', { path: p, rating: newRating })));
         setRatings(prev => {
           const next = { ...prev };
-          pathsToStar.forEach(p => { next[p] = newRating; }); // Apply new rating to UI state
+          pathsToStar.forEach(p => { next[p] = newRating; }); // UI state
           return next;
         });
       } catch (err) {
@@ -431,8 +430,7 @@ function App() {
     [files]
   );
 
-  // Build a delete handler for the given slot (1 or 2).
-  // It trashes the JPEG and its paired RAW (if any), then cleans up state.
+  // Trashes the JPEG and its paired RAW (if any), also cleans up state
   const makeDeleteHandler = useCallback(
     (file: ImageFile, setDeleting: (v: boolean) => void) => async () => {
       if (!window.confirm(`Send "${file.name}" to the Recycle Bin?\nIts paired RAW file (if any) will also be trashed.`)) return;
@@ -441,7 +439,7 @@ function App() {
       try {
         const pathsToTrash: string[] = [file.fullPath];
 
-        // Synchronously resolve the paired RAW path from the current files list
+        // Resolve the paired RAW path from the current files list
         if (JPEG_EXT.test(file.name ?? '')) {
           const baseName = (file.name ?? '').replace(JPEG_EXT, '').toLowerCase();
           const raw = files.find(f =>
@@ -473,7 +471,6 @@ function App() {
     },
     [files, selectedImage1, selectedImage2]
   );
-
 
   // Base names of all RAW files in the folder
   const rawBaseNames = useMemo(
@@ -553,6 +550,45 @@ function App() {
     };
   }, [isResizing, resize, stopResizing]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.code === "Space") {
+        e.preventDefault();
+
+        let shifted = false;
+
+        if (selectedImage1) {
+          const currentIdx = gridFiles.findIndex(f => f.fullPath === selectedImage1.fullPath);
+          const nextFile = gridFiles.slice(currentIdx + 1).find(f => !RAW_EXT.test(f.name ?? ""));
+          if (nextFile) {
+            setSelectedImage1(nextFile);
+            shifted = true;
+          }
+        }
+
+        if (selectedImage2) {
+          const currentIdx = gridFiles.findIndex(f => f.fullPath === selectedImage2.fullPath);
+          const nextFile = gridFiles.slice(currentIdx + 1).find(f => !RAW_EXT.test(f.name ?? ""));
+          if (nextFile) {
+            setSelectedImage2(nextFile);
+            shifted = true;
+          }
+        }
+
+        if (shifted) {
+          setZoom(100);
+          setPan({ x: 0, y: 0 });
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedImage1, selectedImage2, files, gridFiles, viewMode]);
+
   const handleOpenFolder = async () => {
     try {
       const selectedPath = await open({ directory: true, multiple: false });
@@ -589,7 +625,7 @@ function App() {
         setFiles(imageFilesWithPaths);
         setRatings({});
 
-        // Load existing ratings in background (non-blocking)
+        // Load existing ratings (non-blocking)
         imageFilesWithPaths.forEach(f => {
           invoke<number | null>('get_rating', { path: f.fullPath })
             .then(r => { if (r != null) setRatings(prev => ({ ...prev, [f.fullPath]: r })); })
@@ -689,24 +725,30 @@ function App() {
                 </div>
               ) : viewMode === "list" ? (
                 <div className="file-list">
-                  {files.map((file) => (
-                    <div
-                      key={file.fullPath}
-                      className={`file-list-item ${selectedImage1?.fullPath === file.fullPath && selectedImage2?.fullPath === file.fullPath
-                        ? "selected-both"
-                        : selectedImage1?.fullPath === file.fullPath
-                          ? "selected-1"
-                          : selectedImage2?.fullPath === file.fullPath
-                            ? "selected-2"
-                            : ""
-                        }`}
-                      onClick={() => handleImageClick(file)}
-                      onDoubleClick={() => handleImageDoubleClick(file)}
-                    >
-                      <FileImage size={16} className="file-icon" />
-                      <span className="file-name">{file.name}</span>
-                    </div>
-                  ))}
+                  {gridFiles.map((file) => {
+                    const pairedWithRaw =
+                      JPEG_EXT.test(file.name ?? "") &&
+                      rawBaseNames.has((file.name ?? "").replace(JPEG_EXT, "").toLowerCase());
+                    return (
+                      <div
+                        key={file.fullPath}
+                        className={`file-list-item ${selectedImage1?.fullPath === file.fullPath && selectedImage2?.fullPath === file.fullPath
+                          ? "selected-both"
+                          : selectedImage1?.fullPath === file.fullPath
+                            ? "selected-1"
+                            : selectedImage2?.fullPath === file.fullPath
+                              ? "selected-2"
+                              : ""
+                          }`}
+                        onClick={() => handleImageClick(file)}
+                        onDoubleClick={() => handleImageDoubleClick(file)}
+                      >
+                        <FileImage size={16} className="file-icon" />
+                        <span className="file-name">{file.name}</span>
+                        {pairedWithRaw && <span className="list-raw-tag">+ RAW</span>}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="thumbnail-grid">

@@ -36,7 +36,6 @@ body,
   overflow: hidden;
 }
 
-/* App Layout */
 .app-container {
   display: flex;
   height: 100vh;
@@ -49,7 +48,6 @@ body,
   flex-direction: column-reverse;
 }
 
-/* Sidebar */
 .sidebar {
   background-color: var(--bg-panel);
   display: flex;
@@ -71,7 +69,6 @@ body,
   height: 60px !important;
 }
 
-/* Resizer for Left Layout */
 .sidebar.left .resizer {
   position: absolute;
   top: 0;
@@ -90,7 +87,6 @@ body,
   width: 6px;
 }
 
-/* Resizer for Bottom Layout */
 .sidebar.bottom .resizer {
   position: absolute;
   top: 0;
@@ -138,21 +134,18 @@ body,
   overflow-x: hidden;
   padding: 16px;
   direction: rtl;
-  /* moves scrollbar to left side */
 }
 
 .sidebar.bottom .sidebar-content {
   overflow-x: auto;
   overflow-y: hidden;
   direction: ltr;
-  /* Reset text direction for horizontal scrolling */
   display: flex;
   flex-direction: column;
 }
 
 .sidebar-content>* {
   direction: ltr;
-  /* restore normal text direction for children */
 }
 
 .thumbnail-grid-empty {
@@ -224,6 +217,19 @@ body,
   text-overflow: ellipsis;
 }
 
+.list-raw-tag {
+  margin-left: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(59, 130, 246, 0.8);
+  padding: 1px 4px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+
 .thumbnail-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
@@ -263,13 +269,13 @@ body,
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
-/* Wrapper that lets the RAW badge overlay the thumbnail */
+/* Lets RAW badge overlay */
 .thumbnail-item-media {
   position: relative;
   width: 100%;
 }
 
-/* RAW badge — shown on JPEGs that have a matching RAW file */
+/* RAW badge */
 .raw-badge {
   position: absolute;
   bottom: 5px;
@@ -346,7 +352,6 @@ body,
   min-width: 100%;
 }
 
-/* Main Content Area */
 .main-area {
   flex: 1;
   display: flex;
@@ -355,7 +360,6 @@ body,
   background-color: var(--bg-color);
 }
 
-/* Topbar */
 .topbar {
   height: 60px;
   background-color: var(--bg-color);
@@ -378,7 +382,6 @@ body,
   gap: 12px;
 }
 
-/* Buttons */
 .btn-icon {
   background: transparent;
   border: none;
@@ -415,7 +418,6 @@ body,
   background-color: var(--accent-hover);
 }
 
-/* Compact Open Folder button in sidebar header */
 .btn-open-folder {
   display: flex;
   align-items: center;
@@ -435,7 +437,6 @@ body,
   font-weight: 500;
 }
 
-/* Photo Grid Area (Placeholder) */
 .content-grid {
   flex: 1;
   padding: 5px;
@@ -565,24 +566,21 @@ body,
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
 }
 
-/* Bottom layout mode where action zones are 10% */
+/* Bottom layout mode */
 .app-container.sidebar-bottom .zoom-indicator {
   bottom: 90px;
 }
 
-/* Stacked layout where action zones are vertical (no bottom overlap) */
+/* Stacked layout mode */
 .comparison-placeholder.stacked .zoom-indicator {
   bottom: 10px;
 }
 
-/* Layout Spacer for Centering */
 .layout-spacer {
   flex: 0 0 64px;
-  /* Mirrors the thickness of the buttons to keep the image perfectly centered */
   pointer-events: none;
 }
 
-/* Reduced top gap in horizontal mode to allow image to expand higher */
 .layout-spacer.top-spacer {
   flex: 0 0 50px;
 }
@@ -597,7 +595,6 @@ body,
 
 .image-container.flex-center {
   flex: 1;
-  /* Takes up ALL remaining space between the spacer and the buttons */
   display: flex;
   justify-content: center;
   align-items: center;
@@ -605,7 +602,6 @@ body,
   min-width: 0;
   align-self: stretch;
   overflow: hidden;
-  /* Clips the zoomed/panned image exactly at the boundaries */
 }
 
 .contained-image {
@@ -628,13 +624,10 @@ body,
   display: flex;
   flex-direction: row;
   flex: 0 0 15%;
-  /* Fixed height, does not shrink or grow */
   width: 100%;
-  /* Stretches boundary to boundary */
   z-index: 5;
 }
 
-/* Override height for the new bottom sidebar mode */
 .app-container.sidebar-bottom .action-zones.sidebyside {
   flex: 0 0 80px;
 }
@@ -648,13 +641,10 @@ body,
   display: flex;
   flex-direction: column;
   flex: 0 0 250px;
-  /* Fixed width, does not shrink or grow */
   height: 100%;
-  /* Stretches boundary to boundary */
   z-index: 5;
 }
 
-/* Override height for the new bottom sidebar mode */
 .app-container.sidebar-bottom .action-zones.stacked {
   flex: 0 0 350px;
 }
@@ -691,7 +681,7 @@ body,
   color: #60a5fa;
 }
 
-/* Active (starred) state — persistent gold fill */
+/* Active (starred) state */
 .zone-btn.zone-star--active,
 .zone-btn.zone-star--active:hover {
   background: rgba(234, 179, 8, 0.1);
@@ -704,7 +694,7 @@ body,
   fill: #facc15;
 }
 
-/* Gold star badge on thumbnail grid items */
+/* Gold star badge */
 .star-badge {
   position: absolute;
   top: 5px;
@@ -755,16 +745,27 @@ body,
 }
 
 @keyframes delete-pulse {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.55; }
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.55;
+  }
 }
 
 @keyframes delete-spin {
-  0%   { transform: rotate(0deg) scale(1.1); }
-  100% { transform: rotate(360deg) scale(1.1); }
+  0% {
+    transform: rotate(0deg) scale(1.1);
+  }
+
+  100% {
+    transform: rotate(360deg) scale(1.1);
+  }
 }
 
-/* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
