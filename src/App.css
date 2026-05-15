@@ -582,42 +582,110 @@ body,
 }
 
 .layout-spacer.top-spacer {
-  flex: 0 0 50px;
+  flex: 0 1 50px;
 }
 
 .layout-spacer.right-spacer {
-  flex: 0 0 250px;
+  flex: 0 1 250px;
 }
 
 .app-container.sidebar-bottom .layout-spacer.right-spacer {
-  flex: 0 0 350px;
+  flex: 0 1 350px;
 }
 
 .image-container.flex-center {
   flex: 1;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+  display: grid;
+  place-items: center;
   min-height: 0;
   min-width: 0;
   align-self: stretch;
   overflow: hidden;
+  position: relative;
+}
+
+.image-transform-wrapper {
+  position: relative;
+  display: grid;
+  place-items: center;
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.image-transform-wrapper>* {
+  grid-area: 1 / 1;
+}
+
+/* Overlays */
+.rule-of-thirds-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.rule-of-thirds-overlay::before {
+  content: '';
+  position: absolute;
+  top: 33.33%;
+  bottom: 33.33%;
+  left: 0;
+  right: 0;
+  border-top: 1px solid white;
+  border-bottom: 1px solid white;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.3);
+}
+
+.rule-of-thirds-overlay::after {
+  content: '';
+  position: absolute;
+  left: 33.33%;
+  right: 33.33%;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid white;
+  border-right: 1px solid white;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.3);
+}
+
+.cross-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.cross-overlay::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: white;
+  transform: translateY(-50%);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.3);
+}
+
+.cross-overlay::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: white;
+  transform: translateX(-50%);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.3);
 }
 
 .contained-image {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-}
-
-.contained-image.sidebyside-mode {
   width: 100%;
-  height: auto;
-}
-
-.contained-image.stacked-mode {
   height: 100%;
-  width: auto;
+  object-fit: cover;
+  display: block;
 }
 
 .action-zones.sidebyside {

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { FolderPlus, Filter, Grid, List, PanelLeftClose, PanelLeftOpen, PanelBottomClose, PanelBottomOpen, PanelBottom, PanelLeft, Image as ImageIcon, FileImage, Layers, Columns2, Rows2, Info, Star, Move, Trash2 } from "lucide-react";
+import { FolderPlus, Filter, Grid, List, PanelLeftClose, PanelLeftOpen, PanelBottomClose, PanelBottomOpen, PanelBottom, PanelLeft, Image as ImageIcon, FileImage, Layers, Columns2, Rows2, Info, Star, Move, Trash2, Grid3X3, Crosshair } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readDir, DirEntry } from "@tauri-apps/plugin-fs";
 import { join } from "@tauri-apps/api/path";
@@ -111,15 +111,17 @@ function Thumbnail({ file }: { file: ImageFile }) {
 const RAW_EXT = /\.(raf|cr2|nef|arw)$/i;
 const JPEG_EXT = /\.(jpg|jpeg|png)$/i;
 
-function ImageView({ file, placeholder, comparisonLayout, zoom, pan, onZoomPan, onPanDelta, showMetadata, metadata, otherMetadata, hoveredMetaKey, onMetaHover, onDelete, isDeleting, onStar, isStarred }: { file: ImageFile | null; placeholder: string; comparisonLayout: 'sidebyside' | 'stacked'; zoom: number; pan: { x: number, y: number }; onZoomPan: (zoom: number, pan: { x: number, y: number }) => void; onPanDelta: (dx: number, dy: number) => void; showMetadata: boolean; metadata: ImageMetadata | null; otherMetadata: ImageMetadata | null; hoveredMetaKey: string | null; onMetaHover: (key: string | null) => void; onDelete?: () => void; isDeleting?: boolean; onStar?: () => void; isStarred?: boolean; }) {
+function ImageView({ file, placeholder, comparisonLayout, zoom, pan, onZoomPan, onPanDelta, showMetadata, metadata, otherMetadata, hoveredMetaKey, onMetaHover, onDelete, isDeleting, onStar, isStarred, showRuleOfThirds, showCross }: { file: ImageFile | null; placeholder: string; comparisonLayout: 'sidebyside' | 'stacked'; zoom: number; pan: { x: number, y: number }; onZoomPan: (zoom: number, pan: { x: number, y: number }) => void; onPanDelta: (dx: number, dy: number) => void; showMetadata: boolean; metadata: ImageMetadata | null; otherMetadata: ImageMetadata | null; hoveredMetaKey: string | null; onMetaHover: (key: string | null) => void; onDelete?: () => void; isDeleting?: boolean; onStar?: () => void; isStarred?: boolean; showRuleOfThirds: boolean; showCross: boolean; }) {
   const [src, setSrc] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [aspectRatio, setAspectRatio] = useState<number | null>(null);
   const lastMousePos = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
     let active = true;
     if (!file) {
       setSrc(null);
+      setAspectRatio(null);
       return;
     }
     const isRaw = RAW_EXT.test(file.name ?? "");
@@ -285,7 +287,11 @@ function ImageView({ file, placeholder, comparisonLayout, zoom, pan, onZoomPan, 
             style={{ cursor: zoom > 100 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
           >
             {src ? (
-              <img src={src} alt={file.name} draggable={false} className="contained-image stacked-mode" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transition: isDragging ? 'none' : 'transform 0.1s ease-out' }} />
+              <div className="image-transform-wrapper" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transition: isDragging ? 'none' : 'transform 0.1s ease-out', aspectRatio: aspectRatio ? `${aspectRatio}` : 'auto' }}>
+                <img src={src} alt={file.name} draggable={false} className="contained-image stacked-mode" onLoad={(e) => setAspectRatio(e.currentTarget.naturalWidth / e.currentTarget.naturalHeight)} style={{ width: '100%', height: '100%' }} />
+                {showRuleOfThirds && <div className="rule-of-thirds-overlay" />}
+                {showCross && <div className="cross-overlay" />}
+              </div>
             ) : (
               <div className="thumbnail-loading" style={{ width: "100%", height: "100%" }} />
             )}
@@ -305,7 +311,11 @@ function ImageView({ file, placeholder, comparisonLayout, zoom, pan, onZoomPan, 
             style={{ cursor: zoom > 100 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
           >
             {src ? (
-              <img src={src} alt={file.name} draggable={false} className="contained-image sidebyside-mode" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transition: isDragging ? 'none' : 'transform 0.1s ease-out' }} />
+              <div className="image-transform-wrapper" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`, transition: isDragging ? 'none' : 'transform 0.1s ease-out', aspectRatio: aspectRatio ? `${aspectRatio}` : 'auto' }}>
+                <img src={src} alt={file.name} draggable={false} className="contained-image sidebyside-mode" onLoad={(e) => setAspectRatio(e.currentTarget.naturalWidth / e.currentTarget.naturalHeight)} style={{ width: '100%', height: '100%' }} />
+                {showRuleOfThirds && <div className="rule-of-thirds-overlay" />}
+                {showCross && <div className="cross-overlay" />}
+              </div>
             ) : (
               <div className="thumbnail-loading" style={{ width: "100%", height: "100%" }} />
             )}
@@ -355,6 +365,8 @@ function App() {
   const [metadata1, setMetadata1] = useState<ImageMetadata | null>(null);
   const [metadata2, setMetadata2] = useState<ImageMetadata | null>(null);
   const [showMetadata, setShowMetadata] = useState(false);
+  const [showRuleOfThirds, setShowRuleOfThirds] = useState(false);
+  const [showCross, setShowCross] = useState(false);
   const [hoveredMetaKey, setHoveredMetaKey] = useState<string | null>(null);
   const [isDeleting1, setIsDeleting1] = useState(false);
   const [isDeleting2, setIsDeleting2] = useState(false);
@@ -419,7 +431,7 @@ function App() {
         await Promise.all(pathsToStar.map(p => invoke('set_rating', { path: p, rating: newRating })));
         setRatings(prev => {
           const next = { ...prev };
-          pathsToStar.forEach(p => { next[p] = newRating; }); // UI state
+          pathsToStar.forEach(p => { next[p] = newRating; }); // for UI state
           return next;
         });
       } catch (err) {
@@ -837,6 +849,12 @@ function App() {
             <button className="btn-icon" title="Info" onClick={() => setShowMetadata(!showMetadata)} style={{ color: showMetadata ? 'var(--accent-color)' : 'var(--text-secondary)' }}>
               <Info size={18} />
             </button>
+            <button className="btn-icon" title="Rule of Thirds" onClick={() => setShowRuleOfThirds(!showRuleOfThirds)} style={{ color: showRuleOfThirds ? 'var(--accent-color)' : 'var(--text-secondary)' }}>
+              <Grid3X3 size={18} />
+            </button>
+            <button className="btn-icon" title="Cross Overlay" onClick={() => setShowCross(!showCross)} style={{ color: showCross ? 'var(--accent-color)' : 'var(--text-secondary)' }}>
+              <Crosshair size={18} />
+            </button>
             <button
               className="btn-icon"
               title={comparisonLayout === 'sidebyside' ? 'Stack vertically' : 'Place side by side'}
@@ -861,8 +879,8 @@ function App() {
             </div>
           ) : (
             <div className={`comparison-placeholder ${comparisonLayout === 'stacked' ? 'stacked' : ''}`}>
-              <ImageView file={selectedImage1} placeholder="Click an image to view" comparisonLayout={comparisonLayout} zoom={zoom} pan={pan} onZoomPan={handleZoomPan} onPanDelta={handlePanDelta} showMetadata={showMetadata} metadata={metadata1} otherMetadata={metadata2} hoveredMetaKey={hoveredMetaKey} onMetaHover={setHoveredMetaKey} onDelete={selectedImage1 ? makeDeleteHandler(selectedImage1, setIsDeleting1) : undefined} isDeleting={isDeleting1} onStar={selectedImage1 ? makeStarHandler(selectedImage1, isStarred1) : undefined} isStarred={isStarred1} />
-              <ImageView file={selectedImage2} placeholder="Double click an image to compare" comparisonLayout={comparisonLayout} zoom={zoom} pan={pan} onZoomPan={handleZoomPan} onPanDelta={handlePanDelta} showMetadata={showMetadata} metadata={metadata2} otherMetadata={metadata1} hoveredMetaKey={hoveredMetaKey} onMetaHover={setHoveredMetaKey} onDelete={selectedImage2 ? makeDeleteHandler(selectedImage2, setIsDeleting2) : undefined} isDeleting={isDeleting2} onStar={selectedImage2 ? makeStarHandler(selectedImage2, isStarred2) : undefined} isStarred={isStarred2} />
+              <ImageView file={selectedImage1} placeholder="Click an image to view" comparisonLayout={comparisonLayout} zoom={zoom} pan={pan} onZoomPan={handleZoomPan} onPanDelta={handlePanDelta} showMetadata={showMetadata} metadata={metadata1} otherMetadata={metadata2} hoveredMetaKey={hoveredMetaKey} onMetaHover={setHoveredMetaKey} onDelete={selectedImage1 ? makeDeleteHandler(selectedImage1, setIsDeleting1) : undefined} isDeleting={isDeleting1} onStar={selectedImage1 ? makeStarHandler(selectedImage1, isStarred1) : undefined} isStarred={isStarred1} showRuleOfThirds={showRuleOfThirds} showCross={showCross} />
+              <ImageView file={selectedImage2} placeholder="Double click an image to compare" comparisonLayout={comparisonLayout} zoom={zoom} pan={pan} onZoomPan={handleZoomPan} onPanDelta={handlePanDelta} showMetadata={showMetadata} metadata={metadata2} otherMetadata={metadata1} hoveredMetaKey={hoveredMetaKey} onMetaHover={setHoveredMetaKey} onDelete={selectedImage2 ? makeDeleteHandler(selectedImage2, setIsDeleting2) : undefined} isDeleting={isDeleting2} onStar={selectedImage2 ? makeStarHandler(selectedImage2, isStarred2) : undefined} isStarred={isStarred2} showRuleOfThirds={showRuleOfThirds} showCross={showCross} />
             </div>
           )}
         </div>
