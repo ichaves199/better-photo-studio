@@ -29,6 +29,9 @@ type ImageMetadata = {
   exposure_mode?: string;
 };
 
+const MIN_SIDEBAR_WIDTH = 330;
+const MIN_SIDEBAR_HEIGHT = 235;
+
 // ── Concurrency limiter ───────────────────────────────────────────────────────
 const MAX_THUMB_CONCURRENT = 4;
 let _thumbActive = 0;
@@ -444,8 +447,8 @@ function ContextMenu({ x, y, file, onClose, onAction, files, ratings }: {
 function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [sidebarLayout, setSidebarLayout] = useState<'left' | 'bottom'>('left');
-  const [sidebarWidth, setSidebarWidth] = useState(360);
-  const [sidebarHeight, setSidebarHeight] = useState(250);
+  const [sidebarWidth, setSidebarWidth] = useState(MIN_SIDEBAR_WIDTH);
+  const [sidebarHeight, setSidebarHeight] = useState(MIN_SIDEBAR_HEIGHT);
   const [isResizing, setIsResizing] = useState(false);
   const [files, setFiles] = useState<ImageFile[]>([]);
   const [currentFolderPath, setCurrentFolderPath] = useState<string | null>(null);
@@ -749,17 +752,15 @@ function App() {
       if (isResizing) {
         if (sidebarLayout === 'left') {
           const newWidth = e.clientX;
-          const minWidth = 330;
           const maxWidth = window.innerWidth / 2;
-          if (newWidth >= minWidth && newWidth <= maxWidth) setSidebarWidth(newWidth);
-          else if (newWidth < minWidth && newWidth > 100) setSidebarWidth(minWidth);
+          if (newWidth >= MIN_SIDEBAR_WIDTH && newWidth <= maxWidth) setSidebarWidth(newWidth);
+          else if (newWidth < MIN_SIDEBAR_WIDTH && newWidth > 100) setSidebarWidth(MIN_SIDEBAR_WIDTH);
           else if (newWidth > maxWidth) setSidebarWidth(maxWidth);
         } else {
           const newHeight = window.innerHeight - e.clientY;
-          const minHeight = 235;
           const maxHeight = window.innerHeight * 0.8;
-          if (newHeight >= minHeight && newHeight <= maxHeight) setSidebarHeight(newHeight);
-          else if (newHeight < minHeight && newHeight > 50) setSidebarHeight(minHeight);
+          if (newHeight >= MIN_SIDEBAR_HEIGHT && newHeight <= maxHeight) setSidebarHeight(newHeight);
+          else if (newHeight < MIN_SIDEBAR_HEIGHT && newHeight > 50) setSidebarHeight(MIN_SIDEBAR_HEIGHT);
           else if (newHeight > maxHeight) setSidebarHeight(maxHeight);
         }
       }
