@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { FolderPlus, Filter, Grid, List, PanelLeftClose, PanelLeftOpen, PanelBottomClose, PanelBottomOpen, PanelBottom, PanelLeft, Image as ImageIcon, FileImage, Layers, Columns2, Rows2, Info, Star, Move, Trash2, Grid3X3, Crosshair } from "lucide-react";
+import { FolderPlus, Filter, Grid, List, PanelLeftClose, PanelLeftOpen, PanelBottomClose, PanelBottomOpen, PanelBottom, PanelLeft, Image as ImageIcon, FileImage, Layers, Columns2, Rows2, Info, Star, Move, Trash2, Grid3X3, Crosshair, ExternalLink, Copy, Check, MousePointer2, RotateCw } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { readDir, DirEntry } from "@tauri-apps/plugin-fs";
 import { join } from "@tauri-apps/api/path";
 import { invoke } from "@tauri-apps/api/core";
@@ -111,14 +112,13 @@ function Thumbnail({ file }: { file: ImageFile }) {
 const RAW_EXT = /\.(raf|cr2|nef|arw)$/i;
 const JPEG_EXT = /\.(jpg|jpeg|png)$/i;
 
-function ImageView({ file, placeholder, comparisonLayout, zoom, pan, onZoomPan, onPanDelta, showMetadata, metadata, otherMetadata, hoveredMetaKey, onMetaHover, onDelete, isDeleting, onStar, isStarred, showRuleOfThirds, showCross }: { file: ImageFile | null; placeholder: string; comparisonLayout: 'sidebyside' | 'stacked'; zoom: number; pan: { x: number, y: number }; onZoomPan: (zoom: number, pan: { x: number, y: number }) => void; onPanDelta: (dx: number, dy: number) => void; showMetadata: boolean; metadata: ImageMetadata | null; otherMetadata: ImageMetadata | null; hoveredMetaKey: string | null; onMetaHover: (key: string | null) => void; onDelete?: () => void; isDeleting?: boolean; onStar?: () => void; isStarred?: boolean; showRuleOfThirds: boolean; showCross: boolean; }) {
+function ImageView({ file, placeholder, comparisonLayout, zoom, pan, onZoomPan, onPanDelta, showMetadata, metadata, otherMetadata, hoveredMetaKey, onMetaHover, onDelete, isDeleting, onStar, isStarred, onMove, showRuleOfThirds, showCross, onContextMenu }: { file: ImageFile | null; placeholder: string; comparisonLayout: 'sidebyside' | 'stacked'; zoom: number; pan: { x: number, y: number }; onZoomPan: (zoom: number, pan: { x: number, y: number }) => void; onPanDelta: (dx: number, dy: number) => void; showMetadata: boolean; metadata: ImageMetadata | null; otherMetadata: ImageMetadata | null; hoveredMetaKey: string | null; onMetaHover: (key: string | null) => void; onDelete?: () => void; isDeleting?: boolean; onStar?: () => void; isStarred?: boolean; onMove?: () => void; showRuleOfThirds: boolean; showCross: boolean; onContextMenu?: (e: React.MouseEvent, file: ImageFile) => void; }) {
   const [src, setSrc] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<number | null>(null);
   const lastMousePos = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
-    let active = true;
     if (!file) {
       setSrc(null);
       setAspectRatio(null);
@@ -126,18 +126,11 @@ function ImageView({ file, placeholder, comparisonLayout, zoom, pan, onZoomPan, 
     }
     const isRaw = RAW_EXT.test(file.name ?? "");
     if (isRaw) {
-      invoke<string>("get_thumbnail_path", { path: file.fullPath, maxSize: 1920 })
-        .then((p) => {
-          if (active) setSrc(convertFileSrc(p));
-        })
-        .catch((e) => {
-          console.error("Failed to load raw image", e);
-          if (active) setSrc(null);
-        });
+      // Raw previews are currently not supported
+      setSrc(null);
     } else {
       setSrc(convertFileSrc(file.fullPath));
     }
-    return () => { active = false; };
   }, [file]);
 
   useEffect(() => {
@@ -267,7 +260,7 @@ function ImageView({ file, placeholder, comparisonLayout, zoom, pan, onZoomPan, 
             >
               <Star size={32} className="zone-icon" />
             </button>
-            <button className="zone-btn zone-move" title="Move Image">
+            <button className="zone-btn zone-move" title="Move Image" onClick={onMove}>
               <Move size={32} className="zone-icon" />
             </button>
             <button
@@ -283,6 +276,7 @@ function ImageView({ file, placeholder, comparisonLayout, zoom, pan, onZoomPan, 
             className="image-container flex-center"
             onWheel={handleWheel}
             onMouseDown={handleMouseDown}
+            onContextMenu={(e) => file && onContextMenu?.(e, file)}
             onDoubleClick={() => onZoomPan(100, { x: 0, y: 0 })}
             style={{ cursor: zoom > 100 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
           >
@@ -291,6 +285,11 @@ function ImageView({ file, placeholder, comparisonLayout, zoom, pan, onZoomPan, 
                 <img src={src} alt={file.name} draggable={false} className="contained-image stacked-mode" onLoad={(e) => setAspectRatio(e.currentTarget.naturalWidth / e.currentTarget.naturalHeight)} style={{ width: '100%', height: '100%' }} />
                 {showRuleOfThirds && <div className="rule-of-thirds-overlay" />}
                 {showCross && <div className="cross-overlay" />}
+              </div>
+            ) : RAW_EXT.test(file.name ?? "") ? (
+              <div className="raw-preview-not-supported">
+                <FileImage size={48} strokeWidth={1} />
+                <p>Raw previews are currently not supported</p>
               </div>
             ) : (
               <div className="thumbnail-loading" style={{ width: "100%", height: "100%" }} />
@@ -307,6 +306,7 @@ function ImageView({ file, placeholder, comparisonLayout, zoom, pan, onZoomPan, 
             className="image-container flex-center"
             onWheel={handleWheel}
             onMouseDown={handleMouseDown}
+            onContextMenu={(e) => file && onContextMenu?.(e, file)}
             onDoubleClick={() => onZoomPan(100, { x: 0, y: 0 })}
             style={{ cursor: zoom > 100 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
           >
@@ -315,6 +315,11 @@ function ImageView({ file, placeholder, comparisonLayout, zoom, pan, onZoomPan, 
                 <img src={src} alt={file.name} draggable={false} className="contained-image sidebyside-mode" onLoad={(e) => setAspectRatio(e.currentTarget.naturalWidth / e.currentTarget.naturalHeight)} style={{ width: '100%', height: '100%' }} />
                 {showRuleOfThirds && <div className="rule-of-thirds-overlay" />}
                 {showCross && <div className="cross-overlay" />}
+              </div>
+            ) : RAW_EXT.test(file.name ?? "") ? (
+              <div className="raw-preview-not-supported">
+                <FileImage size={48} strokeWidth={1} />
+                <p>Raw previews are currently not supported</p>
               </div>
             ) : (
               <div className="thumbnail-loading" style={{ width: "100%", height: "100%" }} />
@@ -328,7 +333,7 @@ function ImageView({ file, placeholder, comparisonLayout, zoom, pan, onZoomPan, 
             >
               <Star size={32} className="zone-icon" />
             </button>
-            <button className="zone-btn zone-move" title="Move Image">
+            <button className="zone-btn zone-move" title="Move Image" onClick={onMove}>
               <Move size={32} className="zone-icon" />
             </button>
             <button
@@ -339,6 +344,96 @@ function ImageView({ file, placeholder, comparisonLayout, zoom, pan, onZoomPan, 
             >
               <Trash2 size={32} className="zone-icon" />
             </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ContextMenu({ x, y, file, onClose, onAction, files, ratings }: {
+  x: number;
+  y: number;
+  file: ImageFile;
+  onClose: () => void;
+  onAction: (action: string, file: ImageFile) => void;
+  files: ImageFile[];
+  ratings: Record<string, number>;
+}) {
+  const isJpg = JPEG_EXT.test(file.name ?? "");
+  const isRaw = RAW_EXT.test(file.name ?? "");
+
+  const baseName = (file.name ?? "").replace(isJpg ? JPEG_EXT : RAW_EXT, "").toLowerCase();
+
+  const pairedRaw = isJpg ? files.find(f => RAW_EXT.test(f.name ?? "") && (f.name ?? "").replace(RAW_EXT, "").toLowerCase() === baseName) : null;
+  const pairedJpg = isRaw ? files.find(f => JPEG_EXT.test(f.name ?? "") && (f.name ?? "").replace(JPEG_EXT, "").toLowerCase() === baseName) : null;
+
+  const isBundle = !!(pairedRaw || pairedJpg);
+  const isStarred = ratings[file.fullPath] === 5;
+
+  return (
+    <div
+      className="context-menu"
+      style={{ left: x, top: y }}
+      onMouseLeave={onClose}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="context-menu-item" onClick={() => { onAction('show_in_folder', file); onClose(); }}>
+        <ExternalLink size={14} />
+        <span className="context-menu-item-label">Show in Folder</span>
+      </div>
+
+      <div className="context-menu-item" onClick={() => { onAction('copy', file); onClose(); }}>
+        <Copy size={14} />
+        <span className="context-menu-item-label">Copy File Path</span>
+      </div>
+
+      {isRaw && (
+        <>
+          <div className="context-menu-separator" />
+          <div className="context-menu-item" onClick={() => { onAction('view1', file); onClose(); }}>
+            <MousePointer2 size={14} />
+            <span className="context-menu-item-label">View in window 1</span>
+          </div>
+          <div className="context-menu-item" onClick={() => { onAction('view2', file); onClose(); }}>
+            <MousePointer2 size={14} />
+            <span className="context-menu-item-label">View in window 2</span>
+          </div>
+        </>
+      )}
+
+      <div className="context-menu-separator" />
+
+      <div className="context-menu-item" onClick={() => { onAction('star', file); onClose(); }}>
+        <Star size={14} fill={isStarred ? "none" : "currentColor"} style={{ color: isStarred ? "inherit" : "#facc15" }} />
+        <span className="context-menu-item-label">{isStarred ? "Unstar" : "Star"}</span>
+        <span className="context-menu-item-shortcut">S</span>
+      </div>
+
+      <div className="context-menu-item" onClick={() => { onAction('move', file); onClose(); }}>
+        <Move size={14} />
+        <span className="context-menu-item-label">Move</span>
+        <span className="context-menu-item-shortcut">M</span>
+      </div>
+
+      <div className="context-menu-item danger" onClick={() => { onAction('delete', file); onClose(); }}>
+        <Trash2 size={14} />
+        <span className="context-menu-item-label">{isBundle ? "Delete JPG+RAW" : "Delete"}</span>
+        <span className="context-menu-item-shortcut">Del</span>
+      </div>
+
+      {isBundle && (
+        <>
+          <div className="context-menu-separator" />
+
+          <div className="context-menu-item danger" onClick={() => { onAction('delete_jpg', file); onClose(); }}>
+            <Trash2 size={14} />
+            <span className="context-menu-item-label">Delete JPG only</span>
+          </div>
+
+          <div className="context-menu-item danger" onClick={() => { onAction('delete_raw', file); onClose(); }}>
+            <Trash2 size={14} />
+            <span className="context-menu-item-label">Delete RAW only</span>
           </div>
         </>
       )}
@@ -372,6 +467,20 @@ function App() {
   const [isDeleting2, setIsDeleting2] = useState(false);
   // fullPath -> rating (0-5); 5 = starred
   const [ratings, setRatings] = useState<Record<string, number>>({});
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, file: ImageFile } | null>(null);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, file: ImageFile) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, file });
+  }, []);
+
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+
+  useEffect(() => {
+    const handleWindowClick = () => closeContextMenu();
+    window.addEventListener('click', handleWindowClick);
+    return () => window.removeEventListener('click', handleWindowClick);
+  }, [closeContextMenu]);
 
   useEffect(() => {
     if (selectedImage1) {
@@ -484,6 +593,106 @@ function App() {
     [files, selectedImage1, selectedImage2]
   );
 
+  const makeMoveHandler = useCallback(
+    (file: ImageFile) => async () => {
+      try {
+        const destDir = await open({ directory: true, multiple: false });
+        if (destDir && typeof destDir === 'string') {
+          const fileName = file.name ?? "";
+
+          // Resolve paired file
+          const pathsToMove = [file.fullPath];
+          const isJpgFile = JPEG_EXT.test(fileName);
+          const baseName = fileName.replace(isJpgFile ? JPEG_EXT : RAW_EXT, "").toLowerCase();
+          const paired = files.find(f => (isJpgFile ? RAW_EXT : JPEG_EXT).test(f.name ?? "") && (f.name ?? "").replace(isJpgFile ? RAW_EXT : JPEG_EXT, "").toLowerCase() === baseName);
+
+          if (paired) {
+            const confirmMove = window.confirm(`Move "${fileName}" and its paired file "${paired.name}" to ${destDir}?`);
+            if (!confirmMove) return;
+            pathsToMove.push(paired.fullPath);
+          }
+
+          await invoke('move_files', { paths: pathsToMove, destDir });
+
+          // Cleanup state
+          const movedSet = new Set(pathsToMove);
+          setFiles(prev => prev.filter(f => !movedSet.has(f.fullPath)));
+          if (selectedImage1 && movedSet.has(selectedImage1.fullPath)) {
+            setSelectedImage1(null);
+            setZoom(100); setPan({ x: 0, y: 0 });
+          }
+          if (selectedImage2 && movedSet.has(selectedImage2.fullPath)) {
+            setSelectedImage2(null);
+            setZoom(100); setPan({ x: 0, y: 0 });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to move:', err);
+        alert(`Failed to move file:\n${err}`);
+      }
+    },
+    [files, selectedImage1, selectedImage2]
+  );
+
+  const handleContextMenuAction = useCallback(async (action: string, file: ImageFile) => {
+    switch (action) {
+      case 'show_in_folder':
+        try {
+          await revealItemInDir(file.fullPath);
+        } catch (err) {
+          console.error('Failed to show in folder:', err);
+        }
+        break;
+      case 'star':
+        const currentlyStarred = ratings[file.fullPath] === 5;
+        await makeStarHandler(file, currentlyStarred)();
+        break;
+      case 'delete':
+        await makeDeleteHandler(file, file.fullPath === selectedImage1?.fullPath ? setIsDeleting1 : setIsDeleting2)();
+        break;
+      case 'copy':
+        try {
+          await navigator.clipboard.writeText(file.fullPath);
+        } catch (err) {
+          console.error('Failed to copy path:', err);
+        }
+        break;
+      case 'view1':
+        setSelectedImage1(file);
+        setZoom(100);
+        setPan({ x: 0, y: 0 });
+        break;
+      case 'view2':
+        setSelectedImage2(file);
+        setZoom(100);
+        setPan({ x: 0, y: 0 });
+        break;
+      case 'delete_jpg':
+      case 'delete_raw':
+        const isDeleteJpg = action === 'delete_jpg';
+        const isJpg = JPEG_EXT.test(file.name ?? "");
+        const base = (file.name ?? "").replace(isJpg ? JPEG_EXT : RAW_EXT, "").toLowerCase();
+        const target = files.find(f => (isDeleteJpg ? JPEG_EXT : RAW_EXT).test(f.name ?? "") && (f.name ?? "").replace(isDeleteJpg ? JPEG_EXT : RAW_EXT, "").toLowerCase() === base);
+
+        if (target) {
+          if (window.confirm(`Delete associated ${isDeleteJpg ? 'JPG' : 'RAW'} file: "${target.name}"?`)) {
+            try {
+              await invoke('trash_files', { paths: [target.fullPath] });
+              setFiles(prev => prev.filter(f => f.fullPath !== target.fullPath));
+              if (selectedImage1?.fullPath === target.fullPath) setSelectedImage1(null);
+              if (selectedImage2?.fullPath === target.fullPath) setSelectedImage2(null);
+            } catch (err) {
+              alert(`Failed to delete file:\n${err}`);
+            }
+          }
+        }
+        break;
+      case 'move':
+        await makeMoveHandler(file)();
+        break;
+    }
+  }, [files, ratings, selectedImage1, selectedImage2, makeStarHandler, makeDeleteHandler, makeMoveHandler]);
+
   // Base names of all RAW files in the folder
   const rawBaseNames = useMemo(
     () =>
@@ -505,6 +714,13 @@ function App() {
       ),
     [files] // eslint-disable-line react-hooks/exhaustive-deps
   );
+  const bundleCount = useMemo(() => {
+    let count = 0;
+    rawBaseNames.forEach((base) => {
+      if (jpegBaseNames.has(base)) count++;
+    });
+    return count;
+  }, [rawBaseNames, jpegBaseNames]);
 
   // Filtered list: hide RAW files that have a matching JPEG
   const gridFiles = useMemo(
@@ -533,7 +749,7 @@ function App() {
       if (isResizing) {
         if (sidebarLayout === 'left') {
           const newWidth = e.clientX;
-          const minWidth = 300;
+          const minWidth = 330;
           const maxWidth = window.innerWidth / 2;
           if (newWidth >= minWidth && newWidth <= maxWidth) setSidebarWidth(newWidth);
           else if (newWidth < minWidth && newWidth > 100) setSidebarWidth(minWidth);
@@ -601,51 +817,64 @@ function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedImage1, selectedImage2, files, gridFiles, viewMode]);
 
+  const loadFolderContents = useCallback(async (path: string) => {
+    try {
+      invoke("clear_thumbnail_cache").catch(() => { });
+      setCurrentFolderPath(path);
+      setFiles([]);
+      setSelectedImage1(null);
+      setSelectedImage2(null);
+      setZoom(100);
+      setPan({ x: 0, y: 0 });
+
+      const entries = await readDir(path);
+
+      const validExtensions = [".jpg", ".jpeg", ".png"];
+      const rawExtensions = [".raf", ".cr2", ".nef", ".arw"];
+      const allExtensions = [...validExtensions, ...rawExtensions];
+
+      const filtered = entries.filter((entry) => {
+        if (!entry.isFile) return false;
+        const lowerName = (entry.name ?? "").toLowerCase();
+        return allExtensions.some((ext) => lowerName.endsWith(ext));
+      });
+
+      const imageFilesWithPaths: ImageFile[] = await Promise.all(
+        filtered.map(async (entry) => {
+          const fullPath = await join(path, entry.name ?? "");
+          return { ...entry, fullPath };
+        })
+      );
+
+      imageFilesWithPaths.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+      setFiles(imageFilesWithPaths);
+      setRatings({});
+
+      // Load existing ratings (non-blocking)
+      imageFilesWithPaths.forEach(f => {
+        invoke<number | null>('get_rating', { path: f.fullPath })
+          .then(r => { if (r != null) setRatings(prev => ({ ...prev, [f.fullPath]: r })); })
+          .catch(() => { });
+      });
+    } catch (error) {
+      console.error("Failed to load folder contents:", error);
+    }
+  }, []);
+
   const handleOpenFolder = async () => {
     try {
       const selectedPath = await open({ directory: true, multiple: false });
-
       if (selectedPath && typeof selectedPath === "string") {
-        invoke("clear_thumbnail_cache").catch(() => { });
-        setCurrentFolderPath(selectedPath);
-        setFiles([]);
-        setSelectedImage1(null);
-        setSelectedImage2(null);
-        setZoom(100);
-        setPan({ x: 0, y: 0 });
-
-        const entries = await readDir(selectedPath);
-
-        const validExtensions = [".jpg", ".jpeg", ".png"];
-        const rawExtensions = [".raf", ".cr2", ".nef", ".arw"];
-        const allExtensions = [...validExtensions, ...rawExtensions];
-
-        const filtered = entries.filter((entry) => {
-          if (!entry.isFile) return false;
-          const lowerName = (entry.name ?? "").toLowerCase();
-          return allExtensions.some((ext) => lowerName.endsWith(ext));
-        });
-
-        const imageFilesWithPaths: ImageFile[] = await Promise.all(
-          filtered.map(async (entry) => {
-            const fullPath = await join(selectedPath, entry.name ?? "");
-            return { ...entry, fullPath };
-          })
-        );
-
-        imageFilesWithPaths.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
-        setFiles(imageFilesWithPaths);
-        setRatings({});
-
-        // Load existing ratings (non-blocking)
-        imageFilesWithPaths.forEach(f => {
-          invoke<number | null>('get_rating', { path: f.fullPath })
-            .then(r => { if (r != null) setRatings(prev => ({ ...prev, [f.fullPath]: r })); })
-            .catch(() => { });
-        });
+        await loadFolderContents(selectedPath);
       }
     } catch (error) {
       console.error("Failed to open folder:", error);
+    }
+  };
+
+  const handleRefresh = async () => {
+    if (currentFolderPath) {
+      await loadFolderContents(currentFolderPath);
     }
   };
 
@@ -663,7 +892,13 @@ function App() {
         }}
       >
         <div className="sidebar-header">
-          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+          <div style={{
+            display: "flex",
+            flexDirection: (isSidebarCollapsed && sidebarLayout === 'left') ? 'column' : 'row',
+            alignItems: "center",
+            gap: (isSidebarCollapsed && sidebarLayout === 'left') ? "12px" : "4px",
+            padding: (isSidebarCollapsed && sidebarLayout === 'left') ? "12px 0" : "0"
+          }}>
             {!isSidebarCollapsed && (
               <>
                 <button className="btn-icon" title="Filter">
@@ -687,8 +922,17 @@ function App() {
                   <List size={18} />
                 </button>
                 <div style={{ width: "1px", height: "16px", backgroundColor: "var(--border-color)", margin: "0 4px" }} />
-                <button className="btn-icon btn-open-folder" title="Open Folder" onClick={handleOpenFolder}>
+                <button className="btn-icon btn-open-folder" title="Load Folder" onClick={handleOpenFolder}>
                   <FolderPlus size={16} />
+                </button>
+                <button
+                  className="btn-icon btn-refresh"
+                  title="Refresh Folder"
+                  onClick={handleRefresh}
+                  disabled={!currentFolderPath}
+                  style={{ opacity: currentFolderPath ? 1 : 0.5 }}
+                >
+                  <RotateCw size={16} />
                 </button>
                 <div style={{ width: "1px", height: "16px", backgroundColor: "var(--border-color)", margin: "0 4px" }} />
               </>
@@ -722,11 +966,7 @@ function App() {
             }
           }}
         >
-          {isSidebarCollapsed ? (
-            <div style={{ display: "flex", justifyContent: "center", marginTop: "20px" }}>
-              <ImageIcon size={20} style={{ color: "var(--border-color)" }} />
-            </div>
-          ) : (
+          {isSidebarCollapsed ? null : (
             <>
               {files.length === 0 ? (
                 <div className="thumbnail-grid-empty">
@@ -754,6 +994,7 @@ function App() {
                           }`}
                         onClick={() => handleImageClick(file)}
                         onDoubleClick={() => handleImageDoubleClick(file)}
+                        onContextMenu={(e) => handleContextMenu(e, file)}
                       >
                         <FileImage size={16} className="file-icon" />
                         <span className="file-name">{file.name}</span>
@@ -776,6 +1017,7 @@ function App() {
                         title={file.name}
                         onClick={() => handleImageClick(file)}
                         onDoubleClick={() => handleImageDoubleClick(file)}
+                        onContextMenu={(e) => handleContextMenu(e, file)}
                         style={{
                           border: (selectedImage1?.fullPath === file.fullPath && selectedImage2?.fullPath === file.fullPath)
                             ? '2px solid #a855f7'
@@ -806,13 +1048,12 @@ function App() {
                           )}
                           {pairedWithRaw && (
                             <div className="raw-badge" title="A matching RAW file exists">
-                              <Layers size={10} />
-                              RAW
+                              +RAW
                             </div>
                           )}
                           {ratings[file.fullPath] === 5 && (
                             <div className="star-badge" title="5 stars">
-                              <Star size={9} />
+                              <Star size={13} fill="#ffd016ff" />
                             </div>
                           )}
                         </div>
@@ -841,7 +1082,7 @@ function App() {
           <div className="topbar-info">
             {currentFolderPath && (
               <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-                {files.length} images
+                {files.length} files | {bundleCount} JPG+RAW
               </span>
             )}
           </div>
@@ -879,12 +1120,24 @@ function App() {
             </div>
           ) : (
             <div className={`comparison-placeholder ${comparisonLayout === 'stacked' ? 'stacked' : ''}`}>
-              <ImageView file={selectedImage1} placeholder="Click an image to view" comparisonLayout={comparisonLayout} zoom={zoom} pan={pan} onZoomPan={handleZoomPan} onPanDelta={handlePanDelta} showMetadata={showMetadata} metadata={metadata1} otherMetadata={metadata2} hoveredMetaKey={hoveredMetaKey} onMetaHover={setHoveredMetaKey} onDelete={selectedImage1 ? makeDeleteHandler(selectedImage1, setIsDeleting1) : undefined} isDeleting={isDeleting1} onStar={selectedImage1 ? makeStarHandler(selectedImage1, isStarred1) : undefined} isStarred={isStarred1} showRuleOfThirds={showRuleOfThirds} showCross={showCross} />
-              <ImageView file={selectedImage2} placeholder="Double click an image to compare" comparisonLayout={comparisonLayout} zoom={zoom} pan={pan} onZoomPan={handleZoomPan} onPanDelta={handlePanDelta} showMetadata={showMetadata} metadata={metadata2} otherMetadata={metadata1} hoveredMetaKey={hoveredMetaKey} onMetaHover={setHoveredMetaKey} onDelete={selectedImage2 ? makeDeleteHandler(selectedImage2, setIsDeleting2) : undefined} isDeleting={isDeleting2} onStar={selectedImage2 ? makeStarHandler(selectedImage2, isStarred2) : undefined} isStarred={isStarred2} showRuleOfThirds={showRuleOfThirds} showCross={showCross} />
+              <ImageView file={selectedImage1} placeholder="Click an image to view it here" comparisonLayout={comparisonLayout} zoom={zoom} pan={pan} onZoomPan={handleZoomPan} onPanDelta={handlePanDelta} showMetadata={showMetadata} metadata={metadata1} otherMetadata={metadata2} hoveredMetaKey={hoveredMetaKey} onMetaHover={setHoveredMetaKey} onDelete={selectedImage1 ? makeDeleteHandler(selectedImage1, setIsDeleting1) : undefined} isDeleting={isDeleting1} onStar={selectedImage1 ? makeStarHandler(selectedImage1, isStarred1) : undefined} isStarred={isStarred1} onMove={selectedImage1 ? makeMoveHandler(selectedImage1) : undefined} showRuleOfThirds={showRuleOfThirds} showCross={showCross} onContextMenu={handleContextMenu} />
+              <ImageView file={selectedImage2} placeholder="Double click an image to view it here" comparisonLayout={comparisonLayout} zoom={zoom} pan={pan} onZoomPan={handleZoomPan} onPanDelta={handlePanDelta} showMetadata={showMetadata} metadata={metadata2} otherMetadata={metadata1} hoveredMetaKey={hoveredMetaKey} onMetaHover={setHoveredMetaKey} onDelete={selectedImage2 ? makeDeleteHandler(selectedImage2, setIsDeleting2) : undefined} isDeleting={isDeleting2} onStar={selectedImage2 ? makeStarHandler(selectedImage2, isStarred2) : undefined} isStarred={isStarred2} onMove={selectedImage2 ? makeMoveHandler(selectedImage2) : undefined} showRuleOfThirds={showRuleOfThirds} showCross={showCross} onContextMenu={handleContextMenu} />
             </div>
           )}
         </div>
       </main>
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          file={contextMenu.file}
+          onClose={closeContextMenu}
+          onAction={handleContextMenuAction}
+          files={files}
+          ratings={ratings}
+        />
+      )}
     </div>
   );
 }

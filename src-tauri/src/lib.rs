@@ -214,6 +214,40 @@ async fn trash_files(paths: Vec<String>) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn move_files(paths: Vec<String>, dest_dir: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut errors: Vec<String> = Vec::new();
+        let dest_dir_path = std::path::Path::new(&dest_dir);
+        
+        if !dest_dir_path.exists() {
+            return Err(format!("Destination directory does not exist: {}", dest_dir));
+        }
+
+        for path in &paths {
+            let p = std::path::Path::new(path);
+            if !p.exists() {
+                continue;
+            }
+            
+            let file_name = p.file_name().ok_or_else(|| format!("Invalid file name: {}", path))?;
+            let dest_path = dest_dir_path.join(file_name);
+            
+            if let Err(e) = std::fs::rename(p, &dest_path) {
+                errors.push(format!("{}: {}", path, e));
+            }
+        }
+        
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("; "))
+        }
+    })
+    .await
+    .map_err(|e| format!("Thread join error: {}", e))?
+}
+
+#[tauri::command]
 async fn clear_thumbnail_cache() -> Result<(), String> {
     let dir = thumb_dir().clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -537,7 +571,7 @@ pub fn run() {
             THUMB_DIR.set(cache_dir).ok();
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_thumbnail_path, clear_thumbnail_cache, get_image_metadata, trash_files, set_rating, get_rating])
+        .invoke_handler(tauri::generate_handler![get_thumbnail_path, clear_thumbnail_cache, get_image_metadata, trash_files, move_files, set_rating, get_rating])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
