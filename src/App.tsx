@@ -32,7 +32,7 @@ type ImageMetadata = {
 const MIN_SIDEBAR_WIDTH = 330;
 const MIN_SIDEBAR_HEIGHT = 235;
 
-// ── Concurrency limiter ───────────────────────────────────────────────────────
+// Concurrency limiter
 const MAX_THUMB_CONCURRENT = 4;
 let _thumbActive = 0;
 const _thumbQueue: Array<() => void> = [];
@@ -54,7 +54,7 @@ function acquireThumbSlot(): Promise<() => void> {
   });
 }
 
-// --- Lazy Thumbnail Component ---
+// Lazy Thumbnail Component
 function Thumbnail({ file }: { file: ImageFile }) {
   const [src, setSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -354,15 +354,20 @@ function ImageView({ file, placeholder, comparisonLayout, zoom, pan, onZoomPan, 
   );
 }
 
-function ContextMenu({ x, y, file, onClose, onAction, files, ratings }: {
+function ContextMenu({ x, y, file, onClose, onAction, files, ratings, checkedFiles }: {
   x: number;
   y: number;
   file: ImageFile;
   onClose: () => void;
-  onAction: (action: string, file: ImageFile) => void;
+  onAction: (action: string, file: ImageFile | string[]) => void;
   files: ImageFile[];
   ratings: Record<string, number>;
+  checkedFiles: Set<string>;
 }) {
+  const isMulti = checkedFiles.size > 1 && checkedFiles.has(file.fullPath);
+  const targetFiles = isMulti ? Array.from(checkedFiles) : [file.fullPath];
+  const count = targetFiles.length;
+
   const isJpg = JPEG_EXT.test(file.name ?? "");
   const isRaw = RAW_EXT.test(file.name ?? "");
 
@@ -406,26 +411,26 @@ function ContextMenu({ x, y, file, onClose, onAction, files, ratings }: {
       )}
 
       <div className="context-menu-separator" />
-
-      <div className="context-menu-item" onClick={() => { onAction('star', file); onClose(); }}>
+      
+      <div className="context-menu-item" onClick={() => { onAction('star', isMulti ? targetFiles : file); onClose(); }}>
         <Star size={14} fill={isStarred ? "none" : "currentColor"} style={{ color: isStarred ? "inherit" : "#facc15" }} />
-        <span className="context-menu-item-label">{isStarred ? "Unstar" : "Star"}</span>
-        <span className="context-menu-item-shortcut">S</span>
+        <span className="context-menu-item-label">{isMulti ? `Star/Unstar ${count} items` : (isStarred ? "Unstar" : "Star")}</span>
+        {!isMulti && <span className="context-menu-item-shortcut">S</span>}
       </div>
 
-      <div className="context-menu-item" onClick={() => { onAction('move', file); onClose(); }}>
+      <div className="context-menu-item" onClick={() => { onAction('move', isMulti ? targetFiles : file); onClose(); }}>
         <Move size={14} />
-        <span className="context-menu-item-label">Move</span>
-        <span className="context-menu-item-shortcut">M</span>
+        <span className="context-menu-item-label">{isMulti ? `Move ${count} items` : "Move"}</span>
+        {!isMulti && <span className="context-menu-item-shortcut">M</span>}
       </div>
 
-      <div className="context-menu-item danger" onClick={() => { onAction('delete', file); onClose(); }}>
+      <div className="context-menu-item danger" onClick={() => { onAction('delete', isMulti ? targetFiles : file); onClose(); }}>
         <Trash2 size={14} />
-        <span className="context-menu-item-label">{isBundle ? "Delete JPG+RAW" : "Delete"}</span>
-        <span className="context-menu-item-shortcut">Del</span>
+        <span className="context-menu-item-label">{isMulti ? `Delete ${count} items` : (isBundle ? "Delete JPG+RAW" : "Delete")}</span>
+        {!isMulti && <span className="context-menu-item-shortcut">Del</span>}
       </div>
 
-      {isBundle && (
+      {isBundle && !isMulti && (
         <>
           <div className="context-menu-separator" />
 
@@ -470,7 +475,17 @@ function App() {
   const [isDeleting2, setIsDeleting2] = useState(false);
   // fullPath -> rating (0-5); 5 = starred
   const [ratings, setRatings] = useState<Record<string, number>>({});
+  const [checkedFiles, setCheckedFiles] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, file: ImageFile } | null>(null);
+
+  const toggleFileCheck = useCallback((fullPath: string) => {
+    setCheckedFiles(prev => {
+      const next = new Set(prev);
+      if (next.has(fullPath)) next.delete(fullPath);
+      else next.add(fullPath);
+      return next;
+    });
+  }, []);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, file: ImageFile) => {
     e.preventDefault();
@@ -637,61 +652,162 @@ function App() {
     [files, selectedImage1, selectedImage2]
   );
 
-  const handleContextMenuAction = useCallback(async (action: string, file: ImageFile) => {
+  const handleContextMenuAction = useCallback(async (action: string, target: ImageFile | string[]) => {
+    const isBulk = Array.isArray(target);
+    const mainFile = isBulk ? null : target as ImageFile;
+    const paths = isBulk ? target as string[] : [mainFile!.fullPath];
+
     switch (action) {
       case 'show_in_folder':
-        try {
-          await revealItemInDir(file.fullPath);
-        } catch (err) {
-          console.error('Failed to show in folder:', err);
-        }
-        break;
-      case 'star':
-        const currentlyStarred = ratings[file.fullPath] === 5;
-        await makeStarHandler(file, currentlyStarred)();
-        break;
-      case 'delete':
-        await makeDeleteHandler(file, file.fullPath === selectedImage1?.fullPath ? setIsDeleting1 : setIsDeleting2)();
-        break;
-      case 'copy':
-        try {
-          await navigator.clipboard.writeText(file.fullPath);
-        } catch (err) {
-          console.error('Failed to copy path:', err);
-        }
-        break;
-      case 'view1':
-        setSelectedImage1(file);
-        setZoom(100);
-        setPan({ x: 0, y: 0 });
-        break;
-      case 'view2':
-        setSelectedImage2(file);
-        setZoom(100);
-        setPan({ x: 0, y: 0 });
-        break;
-      case 'delete_jpg':
-      case 'delete_raw':
-        const isDeleteJpg = action === 'delete_jpg';
-        const isJpg = JPEG_EXT.test(file.name ?? "");
-        const base = (file.name ?? "").replace(isJpg ? JPEG_EXT : RAW_EXT, "").toLowerCase();
-        const target = files.find(f => (isDeleteJpg ? JPEG_EXT : RAW_EXT).test(f.name ?? "") && (f.name ?? "").replace(isDeleteJpg ? JPEG_EXT : RAW_EXT, "").toLowerCase() === base);
-
-        if (target) {
-          if (window.confirm(`Delete associated ${isDeleteJpg ? 'JPG' : 'RAW'} file: "${target.name}"?`)) {
-            try {
-              await invoke('trash_files', { paths: [target.fullPath] });
-              setFiles(prev => prev.filter(f => f.fullPath !== target.fullPath));
-              if (selectedImage1?.fullPath === target.fullPath) setSelectedImage1(null);
-              if (selectedImage2?.fullPath === target.fullPath) setSelectedImage2(null);
-            } catch (err) {
-              alert(`Failed to delete file:\n${err}`);
-            }
+        if (mainFile) {
+          try {
+            await revealItemInDir(mainFile.fullPath);
+          } catch (err) {
+            console.error('Failed to show in folder:', err);
           }
         }
         break;
+      case 'star':
+        if (isBulk) {
+          const currentlyStarred = ratings[paths[0]] === 5;
+          const newRating = currentlyStarred ? 0 : 5;
+          const allPaths = new Set(paths);
+          // Auto-include pairs for bulk action
+          paths.forEach(p => {
+            const f = files.find(file => file.fullPath === p);
+            if (f) {
+              const base = (f.name ?? '').replace(JPEG_EXT.test(f.name ?? '') ? JPEG_EXT : RAW_EXT, '').toLowerCase();
+              const pair = files.find(other => other.fullPath !== p && (other.name ?? '').toLowerCase().startsWith(base));
+              if (pair) allPaths.add(pair.fullPath);
+            }
+          });
+          const finalPaths = Array.from(allPaths);
+          try {
+            await Promise.all(finalPaths.map(p => invoke('set_rating', { path: p, rating: newRating })));
+            setRatings(prev => {
+              const next = { ...prev };
+              finalPaths.forEach(p => { next[p] = newRating; });
+              return next;
+            });
+          } catch (err) {
+            alert(`Failed to star files:\n${err}`);
+          }
+        } else if (mainFile) {
+          const currentlyStarred = ratings[mainFile.fullPath] === 5;
+          await makeStarHandler(mainFile, currentlyStarred)();
+        }
+        break;
+      case 'delete':
+        if (isBulk) {
+          if (window.confirm(`Delete ${paths.length} selected items and their pairs?`)) {
+            const allPaths = new Set(paths);
+            paths.forEach(p => {
+              const f = files.find(file => file.fullPath === p);
+              if (f) {
+                const base = (f.name ?? '').replace(JPEG_EXT.test(f.name ?? '') ? JPEG_EXT : RAW_EXT, '').toLowerCase();
+                const pair = files.find(other => other.fullPath !== p && (other.name ?? '').toLowerCase().startsWith(base));
+                if (pair) allPaths.add(pair.fullPath);
+              }
+            });
+            const finalPaths = Array.from(allPaths);
+            try {
+              await invoke('trash_files', { paths: finalPaths });
+              const trashedSet = new Set(finalPaths);
+              setFiles(prev => prev.filter(f => !trashedSet.has(f.fullPath)));
+              if (selectedImage1 && trashedSet.has(selectedImage1.fullPath)) setSelectedImage1(null);
+              if (selectedImage2 && trashedSet.has(selectedImage2.fullPath)) setSelectedImage2(null);
+              setCheckedFiles(prev => {
+                const next = new Set(prev);
+                trashedSet.forEach(p => next.delete(p));
+                return next;
+              });
+            } catch (err) {
+              alert(`Failed to delete files:\n${err}`);
+            }
+          }
+        } else if (mainFile) {
+          await makeDeleteHandler(mainFile, mainFile.fullPath === selectedImage1?.fullPath ? setIsDeleting1 : setIsDeleting2)();
+        }
+        break;
       case 'move':
-        await makeMoveHandler(file)();
+        if (isBulk) {
+          try {
+            const destDir = await open({ directory: true, multiple: false });
+            if (destDir && typeof destDir === 'string') {
+              const allPaths = new Set(paths);
+              paths.forEach(p => {
+                const f = files.find(file => file.fullPath === p);
+                if (f) {
+                  const base = (f.name ?? '').replace(JPEG_EXT.test(f.name ?? '') ? JPEG_EXT : RAW_EXT, '').toLowerCase();
+                  const pair = files.find(other => other.fullPath !== p && (other.name ?? '').toLowerCase().startsWith(base));
+                  if (pair) allPaths.add(pair.fullPath);
+                }
+              });
+              const finalPaths = Array.from(allPaths);
+              if (window.confirm(`Move ${finalPaths.length} items (including pairs) to ${destDir}?`)) {
+                await invoke('move_files', { paths: finalPaths, destDir });
+                const movedSet = new Set(finalPaths);
+                setFiles(prev => prev.filter(f => !movedSet.has(f.fullPath)));
+                if (selectedImage1 && movedSet.has(selectedImage1.fullPath)) setSelectedImage1(null);
+                if (selectedImage2 && movedSet.has(selectedImage2.fullPath)) setSelectedImage2(null);
+                setCheckedFiles(prev => {
+                  const next = new Set(prev);
+                  movedSet.forEach(p => next.delete(p));
+                  return next;
+                });
+              }
+            }
+          } catch (err) {
+            alert(`Failed to move files:\n${err}`);
+          }
+        } else if (mainFile) {
+          await makeMoveHandler(mainFile)();
+        }
+        break;
+      case 'copy':
+        if (mainFile) {
+          try {
+            await navigator.clipboard.writeText(mainFile.fullPath);
+          } catch (err) {
+            console.error('Failed to copy path:', err);
+          }
+        }
+        break;
+      case 'view1':
+        if (mainFile) {
+          setSelectedImage1(mainFile);
+          setZoom(100);
+          setPan({ x: 0, y: 0 });
+        }
+        break;
+      case 'view2':
+        if (mainFile) {
+          setSelectedImage2(mainFile);
+          setZoom(100);
+          setPan({ x: 0, y: 0 });
+        }
+        break;
+      case 'delete_jpg':
+      case 'delete_raw':
+        if (mainFile) {
+          const isDeleteJpg = action === 'delete_jpg';
+          const isJpg = JPEG_EXT.test(mainFile.name ?? "");
+          const base = (mainFile.name ?? "").replace(isJpg ? JPEG_EXT : RAW_EXT, "").toLowerCase();
+          const target = files.find(f => (isDeleteJpg ? JPEG_EXT : RAW_EXT).test(f.name ?? "") && (f.name ?? "").replace(isDeleteJpg ? JPEG_EXT : RAW_EXT, "").toLowerCase() === base);
+
+          if (target) {
+            if (window.confirm(`Delete associated ${isDeleteJpg ? 'JPG' : 'RAW'} file: "${target.name}"?`)) {
+              try {
+                await invoke('trash_files', { paths: [target.fullPath] });
+                setFiles(prev => prev.filter(f => f.fullPath !== target.fullPath));
+                if (selectedImage1?.fullPath === target.fullPath) setSelectedImage1(null);
+                if (selectedImage2?.fullPath === target.fullPath) setSelectedImage2(null);
+              } catch (err) {
+                alert(`Failed to delete file:\n${err}`);
+              }
+            }
+          }
+        }
         break;
     }
   }, [files, ratings, selectedImage1, selectedImage2, makeStarHandler, makeDeleteHandler, makeMoveHandler]);
@@ -850,6 +966,7 @@ function App() {
       imageFilesWithPaths.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
       setFiles(imageFilesWithPaths);
       setRatings({});
+      setCheckedFiles(new Set());
 
       // Load existing ratings (non-blocking)
       imageFilesWithPaths.forEach(f => {
@@ -1052,6 +1169,15 @@ function App() {
                               +RAW
                             </div>
                           )}
+                          <div
+                            className={`selection-checkbox ${checkedFiles.has(file.fullPath) ? 'checked' : ''}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleFileCheck(file.fullPath);
+                            }}
+                          >
+                            {checkedFiles.has(file.fullPath) && <Check size={12} strokeWidth={3} />}
+                          </div>
                           {ratings[file.fullPath] === 5 && (
                             <div className="star-badge" title="5 stars">
                               <Star size={13} fill="#ffd016ff" />
@@ -1137,6 +1263,7 @@ function App() {
           onAction={handleContextMenuAction}
           files={files}
           ratings={ratings}
+          checkedFiles={checkedFiles}
         />
       )}
     </div>
