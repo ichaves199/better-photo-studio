@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { FolderPlus, Filter, Grid, List, PanelLeftClose, PanelLeftOpen, PanelBottomClose, PanelBottomOpen, PanelBottom, PanelLeft, Image as ImageIcon, FileImage, Layers, Columns2, Rows2, Info, Star, Move, Trash2, Grid3X3, Crosshair, ExternalLink, Copy, Check, MousePointer2, RotateCw } from "lucide-react";
+import { FolderPlus, Filter, Grid, List, PanelLeftClose, PanelLeftOpen, PanelBottomClose, PanelBottomOpen, PanelBottom, PanelLeft, Image as ImageIcon, FileImage, Columns2, Rows2, Info, Star, Move, Trash2, Grid3X3, Crosshair, ExternalLink, Copy, Check, MousePointer2, RotateCw } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { readDir, DirEntry } from "@tauri-apps/plugin-fs";
