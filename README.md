@@ -1,52 +1,37 @@
-# Better Photo Chooser
+# Better Photo Studio
 
-A high-performance desktop application designed for photographers to efficiently cull, compare, and organize large collections of RAW and JPEG photos. Built with Tauri, Rust, and React.
+A high-performance customizable desktop application designed for photographers to easily cull, compare, organize, and edit large collections of RAW and JPG photos. Built with Tauri, Rust, React, and WebGL.
 
-![Better Photo Chooser Example](public/assets/example.png)
+## Overview
 
-## Features
+Better Photo Studio is a fast, full-featured, non-destructive photo editor. It brings real-time hardware-accelerated adjustments (crop, rotate, exposure, noise reduction, sharpening, defringing, white balance, vibrance, etc.) to RAW-heavy workflows.
 
-*   **Dual Format Management:** Automatically detects and pairs `.jpg` and `.raf` (RAW) files. The grid view hides redundant RAW files while highlighting paired JPEGs with a "RAW" badge.
-*   **Comparison View:** 
-    *   **Synchronized Navigation:** Both panes stay in perfect sync for zoom and pan.
-    *   **Double-Click Reset:** Instantly revert zoom to 100% with a double-click.
-    *   **Layout Toggle:** Switch between Side-by-Side and Stacked modes depending on your screen.
-*   **Detailed Metadata Explorer:** 
-    *   Extracts comprehensive EXIF data (Aperture, ISO, Shutter Speed, Lens details, etc.).
-    *   **Interactive Chips:** Metadata is displayed as chips with cross-pane hover synchronization.
-*   **High-Performance Pipeline:**
-    *   **Two-Stage Thumbnailing:** Instant EXIF thumbnail extraction with a SIMD-accelerated `fast_image_resize` fallback.
-    *   **Concurrency Control:** A built-in limiter ensures the UI stays smooth even when loading folders with thousands of images.
-    *   **Virtualization & Lazy Loading:** Uses Intersection Observer for efficient resource management.
+## Workflow & Architecture
 
-![Better Photo Chooser Example](public/assets/example2.png)
+1. **Core Framework**
+   Tauri + React + TypeScript + Vite: Keeps the desktop app lightweight.
 
-![Better Photo Chooser Example](public/assets/example3.png)
+2. **Rendering: PixiJS**
+   PixiJS provides hardware-accelerated WebGL rendering. Allows to write custom GLSL fragment shaders to handle exposure, contrast, and color grading instantly as sliders move.
 
-## Technical Stack
+3. **RAW Decoding: libraw-rs**
+   Provides bindings to the LibRaw C library, guaranteeing accurate color extraction and demosaicing for heavy RAWs.
 
-*   **Backend (Rust):** 
-    *   `fast_image_resize`: SIMD-accelerated image scaling.
-    *   `exif`: High-speed metadata and thumbnail extraction.
-    *   Tauri: Lightweight native bridge for file system operations.
-*   **Frontend (React + TypeScript):**
-    *   State-synchronized comparison engine.
-    *   Responsive, resizable sidebar with grid/list view modes.
-    *   Lucide-React for a premium icon set.
-*   **Design:**
-    *   Modern, dark-themed UI with glass touches.
-    *   Interactive action zones for quick culling (Star, Move, Delete).
+4. **Image Processing: image + fast_image_resize**
+   Once the final edit parameters are choosen, these crates apply the changes to the new full-resolution file during export.
+
+### Data Flow Example
+
+*   **Load:** Rust reads the `.raf` file using `libraw-rs`, demosaics it into an RGB buffer, and uses `fast_image_resize` to scale it down to a medium resolution proxy.
+*   **Transfer:** Rust sends this proxy to React via Tauri's custom asset protocol.
+*   **Edit:** React loads the proxy into a PixiJS WebGL canvas. As the user drags the exposure slider, a GLSL shader updates the display.
+*   **Export and Render:** React sends an IPC message. Rust applies the exact operations to the original 40MP RGB buffer and writes the final JPEG to disk.
 
 ## Development
 
-Ensure you have the system dependencies for Tauri and Rust installed.
+Ensure dependencies for Tauri and Rust are installed.
 
-Install node modules:
 ```bash
 npm install
-```
-
-Run the application in development mode:
-```bash
 npm run tauri dev
 ```
